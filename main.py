@@ -11,8 +11,8 @@ from datetime import datetime
 warnings.filterwarnings('ignore')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # TensorFlow uyarılarını gizle
 
-# Ana JetX tahmin sınıfını import et
-from main import JetXPredictor
+# Enhanced JetX tahmin sınıfını import et
+from predictor_logic import JetXPredictor
 
 # Sayfa konfigürasyonu
 st.set_page_config(
@@ -57,12 +57,9 @@ st.markdown("""
 # Session state ile uygulama durumunu takip et
 if 'predictor' not in st.session_state:
     st.session_state.predictor = JetXPredictor(db_path="jetx_data.db")
-    # Verileri yükle ve modelleri hazırla
-    df = st.session_state.predictor.load_data()
-    if df is not None and len(df) > 0:
-        st.session_state.predictor.initialize_models(df)
-    else:
-        st.warning("Veritabanında veri bulunamadı. Önce veri ekleyin.")
+    # Modellerin yüklü olup olmadığını kontrol et
+    if not st.session_state.predictor.models:
+        st.warning("Modeller henüz eğitilmemiş. Sidebar'dan 'Modelleri Yeniden Eğit' butonuna tıklayın.")
 
 if 'last_values' not in st.session_state:
     st.session_state.last_values = []
@@ -97,13 +94,8 @@ def add_value_and_predict(value):
         if len(st.session_state.last_values) > 15:
             st.session_state.last_values = st.session_state.last_values[-15:]
 
-        # Yeni veri sayısını artır
+        # Yeni veri sayısını artır (sadece istatistik için)
         st.session_state.new_data_count += 1
-
-        # Her 10 yeni veriden sonra modelleri yeniden eğit
-        if st.session_state.new_data_count >= 10:
-            st.session_state.should_retrain = True
-            st.session_state.new_data_count = 0
 
         # Hemen tahmin yap
         with st.spinner("Tahmin yapılıyor..."):
@@ -180,13 +172,7 @@ with col1:
                     progress_bar.progress((i + 1) / len(lines))
 
                 st.success(f"{success_count} değer başarıyla eklendi. {error_count} değer eklenemedi.")
-
-                # Eğer yeniden eğitim gerekiyorsa
-                if st.session_state.should_retrain:
-                    with st.spinner("Modeller güncelleniyor..."):
-                        st.session_state.predictor.retrain_models()
-                    st.session_state.should_retrain = False
-
+                
                 # Sayfayı yenile
                 st.rerun()
 
@@ -300,11 +286,7 @@ with col2:
     else:
         st.info("Henüz model performans bilgisi yok.")
 
-# Sayfa yenilendiğinde yeniden eğitim kontrolü
-if st.session_state.should_retrain:
-    with st.spinner("Modeller güncelleniyor..."):
-        st.session_state.predictor.retrain_models()
-    st.session_state.should_retrain = False
+# Otomatik yeniden eğitim kaldırıldı - sadece manuel eğitim
 
 # Sidebar - Ek Ayarlar
 st.sidebar.title("Ayarlar ve Bilgiler")
