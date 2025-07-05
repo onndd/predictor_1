@@ -23,7 +23,7 @@ from models.sequential.enhanced_transformer import EnhancedTransformerModel
 from models.enhanced_light_models import create_enhanced_light_models, LightModelEnsemble
 
 # Confidence estimation
-from ensemble.confidence_estimator import ConfidenceEstimator
+from ensemble.confidence_estimator import MultiFactorConfidenceEstimator
 
 # Legacy modeller (opsiyonel)
 from models.transition.markov_model import MarkovModel
@@ -55,7 +55,10 @@ class JetXPredictor:
         
         # Legacy support
         self.models = {}
-        self.confidence_estimator = ConfidenceEstimator()
+        self.confidence_estimator = MultiFactorConfidenceEstimator(
+            history_size=500,
+            model_update_threshold_hours=24
+        )
         self.crash_detector = None
         
         # Parametreler
@@ -86,6 +89,10 @@ class JetXPredictor:
             # Confidence estimator kaydet
             conf_path = os.path.join(self.models_path, "confidence_estimator.joblib")
             joblib.dump(self.confidence_estimator, conf_path)
+            
+            # Confidence data'yı JSON olarak da kaydet
+            conf_data_path = os.path.join(self.models_path, "confidence_data.json")
+            self.confidence_estimator.save_confidence_data(conf_data_path)
             
             # Crash detector varsa kaydet
             if self.crash_detector:
@@ -133,6 +140,12 @@ class JetXPredictor:
             if os.path.exists(conf_path):
                 self.confidence_estimator = joblib.load(conf_path)
                 print("  -> Confidence estimator yüklendi")
+                
+                # Confidence data'yı da yükle
+                conf_data_path = os.path.join(self.models_path, "confidence_data.json")
+                if os.path.exists(conf_data_path):
+                    self.confidence_estimator.load_confidence_data(conf_data_path)
+                    print("  -> Confidence data yüklendi")
             
             # Crash detector yükle
             crash_path = os.path.join(self.models_path, "crash_detector.joblib")
@@ -338,7 +351,11 @@ class JetXPredictor:
             
             # 4. Confidence estimator güncellle
             print("Confidence estimator güncelleniyor...")
-            # Bu boş kalabilir, runtime'da güncellenecek
+            # Model metadata'sını güncelle
+            self.confidence_estimator.update_model_metadata(
+                last_updated=datetime.now(),
+                training_data_quality=0.8
+            )
             
             # Eğitim tamamlandı
             self.is_trained = True
@@ -412,14 +429,25 @@ class JetXPredictor:
                 except:
                     pass
             
-            # 3. Final confidence calculation
-            final_confidence = self.confidence_estimator.estimate_confidence(
+            # 3. Multi-factor confidence calculation
+            confidence_analysis = self.confidence_estimator.estimate_confidence(
                 predicted_value, above_threshold_prob
             )
             
+            # Çoklu faktör güven skoru
+            multi_factor_confidence = confidence_analysis['total_confidence']
+            
             # Hibrit confidence ile kombine et
-            combined_confidence = (final_confidence + confidence) / 2
+            combined_confidence = (multi_factor_confidence + confidence) / 2
             combined_confidence = max(0.0, min(1.0, combined_confidence))
+            
+            # Detaylı güven bilgilerini logla
+            print(f"  -> Güven Analizi:")
+            print(f"     Seviye: {confidence_analysis['confidence_level']}")
+            print(f"     Toplam: {multi_factor_confidence:.3f}")
+            print(f"     Faktörler: {', '.join([f'{k}: {v:.2f}' for k, v in confidence_analysis['factors'].items()])}")
+            if confidence_analysis['recommendations']:
+                print(f"     Öneriler: {'; '.join(confidence_analysis['recommendations'])}")
             
             # 4. Decision making
             if combined_confidence < self.min_confidence_threshold:
@@ -430,7 +458,8 @@ class JetXPredictor:
                     'above_threshold_probability': above_threshold_prob,
                     'confidence_score': combined_confidence,
                     'crash_risk_by_special_model': crash_risk_score,
-                    'decision_text': 'Belirsiz (Düşük Güven)'
+                    'decision_text': 'Belirsiz (Düşük Güven)',
+                    'confidence_analysis': confidence_analysis
                 }
             else:
                 # Decision threshold
@@ -449,7 +478,8 @@ class JetXPredictor:
                     'above_threshold_probability': above_threshold_prob,
                     'confidence_score': combined_confidence,
                     'crash_risk_by_special_model': crash_risk_score,
-                    'decision_text': '1.5 ÜZERİNDE' if final_decision else '1.5 ALTINDA'
+                    'decision_text': '1.5 ÜZERİNDE' if final_decision else '1.5 ALTINDA',
+                    'confidence_analysis': confidence_analysis
                 }
             
             # 5. Tahmin kaydet
@@ -496,7 +526,8 @@ class JetXPredictor:
                     self.confidence_estimator.add_prediction(
                         last_predicted_val, 
                         actual_value, 
-                        initial_confidence
+                        initial_confidence,
+                        timestamp=datetime.now()
                     )
                 else:
                     print(f"UYARI: ConfidenceEstimator için ID'si {prediction_id} olan tahmin veritabanında bulunamadı.")
