@@ -128,8 +128,8 @@ class OptimizedJetXPredictor:
         if recent_values is None:
             recent_values = self._load_recent_data(limit=200)
             
-        if len(recent_values) < 50:
-            print(f"❌ Yeterli veri yok! Mevcut: {len(recent_values)}, Gerekli: 50+")
+        if len(recent_values) < 150:
+            print(f"❌ Yeterli veri yok! Mevcut: {len(recent_values)}, Gerekli: 150+")
             return None
         
         # Hızlı tahmin
@@ -137,7 +137,7 @@ class OptimizedJetXPredictor:
         
         try:
             # Cache kontrolü
-            cache_key = tuple(recent_values[-50:])  # Son 50 değerle cache
+            cache_key = tuple(recent_values[-100:])  # Son 100 değerle cache
             if use_cache and cache_key in self.feature_cache:
                 features = self.feature_cache[cache_key]
                 cache_hit = True
@@ -148,7 +148,7 @@ class OptimizedJetXPredictor:
             # Ensemble prediction
             predicted_value, probability, confidence = self.model_manager.predict_with_ensemble(
                 self.current_models, 
-                recent_values[-100:]  # Son 100 değer yeterli
+                recent_values[-200:]  # Son 200 değer ile daha stabil tahmin
             )
             
             prediction_time = time.time() - start_time

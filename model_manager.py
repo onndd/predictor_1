@@ -44,7 +44,7 @@ class ModelManager:
         for directory in directories:
             os.makedirs(directory, exist_ok=True)
     
-    def prepare_training_data(self, window_size=5000, sequence_length=100, test_ratio=0.2):
+    def prepare_training_data(self, window_size=5000, sequence_length=200, test_ratio=0.2):
         """
         Eğitim verilerini optimize edilmiş şekilde hazırla
         """
@@ -57,8 +57,8 @@ class ModelManager:
             df = pd.read_sql_query(query, conn)
             conn.close()
             
-            if len(df) < sequence_length * 2:
-                print(f"HATA: Yeterli veri yok. Mevcut: {len(df)}, Gerekli: {sequence_length * 2}")
+            if len(df) < sequence_length * 3:
+                print(f"HATA: Yeterli veri yok. Mevcut: {len(df)}, Gerekli: {sequence_length * 3}")
                 return None
                 
             values = df['value'].values[::-1]  # Doğru sıralama

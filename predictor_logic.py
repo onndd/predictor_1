@@ -63,7 +63,7 @@ class JetXPredictor:
         
         # Parametreler
         self.threshold = 1.5
-        self.training_window_size = 3000  # Artırıldı daha iyi accuracy için
+        self.training_window_size = 5000  # Artırıldı çok daha iyi accuracy için
         self.min_confidence_threshold = 0.55  # Azaltıldı daha fazla tahmin için
         
         # Model durumu
@@ -200,7 +200,7 @@ class JetXPredictor:
                 except Exception as e:
                     print(f"     HATA: Model '{name}' Fold {i+1} için eğitilemedi: {e}")
 
-            min_history = 201 
+            min_history = 350  # Artırıldı daha güvenli meta-features için
             if len(test_data) < min_history:
                 continue
 
@@ -256,8 +256,8 @@ class JetXPredictor:
         # Veri hazırlama
         data = data.tail(self.training_window_size).copy()
         
-        if len(data) < 500:
-            print(f"Eğitim için yeterli veri bulunamadı! (Mevcut: {len(data)}, Gerekli: 500+)")
+        if len(data) < 1000:
+            print(f"Eğitim için yeterli veri bulunamadı! (Mevcut: {len(data)}, Gerekli: 1000+)")
             return False
             
         values = data['value'].values
@@ -269,7 +269,7 @@ class JetXPredictor:
             # Enhanced LSTM
             print("Enhanced LSTM eğitiliyor...")
             lstm_model = EnhancedLSTMModel(
-                seq_length=min(200, len(values) // 10),
+                seq_length=min(500, max(300, len(values) // 10)),
                 threshold=self.threshold
             )
             lstm_model.build_model(
@@ -285,7 +285,7 @@ class JetXPredictor:
             # Enhanced Transformer
             print("Enhanced Transformer eğitiliyor...")
             transformer_model = EnhancedTransformerModel(
-                seq_length=min(150, len(values) // 12),
+                seq_length=min(400, max(250, len(values) // 12)),
                 threshold=self.threshold
             )
             transformer_model.build_model(
@@ -326,7 +326,7 @@ class JetXPredictor:
             sequences = []
             labels = []
             
-            sequence_length = 100
+            sequence_length = 200  # Artırıldı daha uzun pattern recognition için
             for i in range(len(values) - sequence_length):
                 seq = values[i:i + sequence_length].tolist()
                 next_val = values[i + sequence_length]
@@ -390,7 +390,7 @@ class JetXPredictor:
                 return None
             recent_values = df['value'].values
 
-        MIN_DATA_FOR_PREDICTION = 100  # Azaltıldı
+        MIN_DATA_FOR_PREDICTION = 300  # Artırıldı daha stabil tahminler için
         if len(recent_values) < MIN_DATA_FOR_PREDICTION:
             print(f"HATA: Yeterli veri yok ({len(recent_values)}/{MIN_DATA_FOR_PREDICTION})")
             return None
@@ -407,7 +407,7 @@ class JetXPredictor:
             start_time = datetime.now()
             
             predicted_value, above_threshold_prob, confidence = self.hybrid_predictor.predict_next_value(
-                recent_values[-200:]  # Son 200 veri yeterli
+                recent_values[-400:]  # Son 400 veri ile daha güvenli tahmin
             )
             
             prediction_time = (datetime.now() - start_time).total_seconds()
@@ -424,7 +424,7 @@ class JetXPredictor:
             crash_risk_score = 0.0
             if self.crash_detector:
                 try:
-                    crash_risk_score = self.crash_detector.predict_crash_risk(recent_values[-20:])
+                    crash_risk_score = self.crash_detector.predict_crash_risk(recent_values[-50:])
                     print(f"  -> Crash risk: {crash_risk_score:.2f}")
                 except:
                     pass

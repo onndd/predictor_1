@@ -1,4 +1,4 @@
-import math
+THIS SHOULD BE A LINTER ERRORimport math
 import statistics
 from datetime import datetime, timedelta
 import json
@@ -95,7 +95,7 @@ class MultiFactorConfidenceEstimator:
         Model Performans Faktörü (0.0 - 1.0)
         Son performansa odaklanır
         """
-        if len(self.prediction_history) < 10:
+        if len(self.prediction_history) < 30:
             return 0.5
         
         # Son tahminlerin doğruluğu
@@ -125,7 +125,7 @@ class MultiFactorConfidenceEstimator:
         Veri Kalitesi Faktörü (0.0 - 1.0)
         Veri tutarlılığı, eksik değerler, aykırı değerler
         """
-        if len(self.actual_history) < 10:
+        if len(self.actual_history) < 30:
             return 0.5
         
         recent_values = self.actual_history[-50:]
@@ -159,12 +159,12 @@ class MultiFactorConfidenceEstimator:
         Zamansal Tutarlılık Faktörü (0.0 - 1.0)
         Tahminlerin zaman içindeki tutarlılığı
         """
-        if len(self.prediction_history) < 20:
+        if len(self.prediction_history) < 50:
             return 0.5
         
-        # Son 20 tahmindeki tutarlılık
-        recent_predictions = self.prediction_history[-20:]
-        recent_confidences = self.confidence_history[-20:]
+        # Son 50 tahmindeki tutarlılık
+        recent_predictions = self.prediction_history[-50:]
+        recent_confidences = self.confidence_history[-50:]
         
         # Güven seviyesi tutarlılığı
         confidence_std = statistics.stdev(recent_confidences) if len(recent_confidences) > 1 else 0.0
