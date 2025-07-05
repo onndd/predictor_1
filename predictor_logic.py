@@ -1,11 +1,11 @@
 # Enhanced JetX Predictor with Hybrid System
 
-import numpy as np
-import pandas as pd
+import statistics
+import math
 import sqlite3
 import copy
 import os
-import joblib
+import pickle
 import warnings
 from datetime import datetime
 
@@ -14,21 +14,88 @@ warnings.filterwarnings('ignore')
 # Data processing
 from data_processing.loader import load_data_from_sqlite, save_result_to_sqlite, save_prediction_to_sqlite, update_prediction_result
 
-# Hibrit sistem
-from models.hybrid_predictor import HybridPredictor, FeatureExtractor
-
-# Enhanced modeller
-from models.sequential.enhanced_lstm import EnhancedLSTMModel
-from models.sequential.enhanced_transformer import EnhancedTransformerModel
-from models.enhanced_light_models import create_enhanced_light_models, LightModelEnsemble
-
 # Confidence estimation
-from ensemble.confidence_estimator import ConfidenceEstimator
+from ensemble.confidence_estimator import MultiFactorConfidenceEstimator
 
-# Legacy modeller (opsiyonel)
-from models.transition.markov_model import MarkovModel
-from models.similarity.pattern_matcher import PatternMatcher
-from models.crash_detector import CrashDetector
+# Models - Conditional import for compatibility
+class DummyModel:
+    """Dummy model for compatibility when dependencies are missing"""
+    def __init__(self, *args, **kwargs):
+        self.is_fitted = False
+        
+    def fit(self, *args, **kwargs):
+        pass
+        
+    def predict_next_value(self, *args, **kwargs):
+        return None, 0.5, 0.0
+        
+    def save_models(self):
+        return True
+        
+    def load_models(self):
+        return False
+        
+    def add_heavy_model(self, *args, **kwargs):
+        pass
+
+# TimeSeriesSplit fallback implementation
+try:
+    from sklearn.model_selection import TimeSeriesSplit
+except ImportError:
+    class TimeSeriesSplit:
+        def __init__(self, n_splits=5):
+            self.n_splits = n_splits
+        
+        def split(self, X):
+            n = len(X)
+            fold_size = n // self.n_splits
+            for i in range(self.n_splits):
+                start = i * fold_size
+                end = start + fold_size
+                train_idx = list(range(0, start)) + list(range(end, n))
+                test_idx = list(range(start, end))
+                yield train_idx, test_idx
+
+# Try importing models, fallback to dummy
+try:
+    from models.hybrid_predictor import HybridPredictor, FeatureExtractor
+    HAS_ADVANCED_MODELS = True
+except ImportError as e:
+    print(f"UYARI: Gelişmiş modeller yüklenemedi: {e}")
+    HybridPredictor = DummyModel
+    FeatureExtractor = DummyModel
+    HAS_ADVANCED_MODELS = False
+
+try:
+    from models.sequential.enhanced_lstm import EnhancedLSTMModel
+    from models.sequential.enhanced_transformer import EnhancedTransformerModel
+    HAS_DEEP_MODELS = True
+except ImportError as e:
+    print(f"UYARI: Derin öğrenme modelleri yüklenemedi: {e}")
+    EnhancedLSTMModel = DummyModel  
+    EnhancedTransformerModel = DummyModel
+    HAS_DEEP_MODELS = False
+
+try:
+    from models.enhanced_light_models import create_enhanced_light_models, LightModelEnsemble
+    HAS_LIGHT_MODELS = True
+except ImportError as e:
+    print(f"UYARI: Hafif modeller yüklenemedi: {e}")
+    create_enhanced_light_models = lambda: {}
+    LightModelEnsemble = DummyModel
+    HAS_LIGHT_MODELS = False
+
+try:
+    from models.transition.markov_model import MarkovModel
+    from models.similarity.pattern_matcher import PatternMatcher
+    from models.crash_detector import CrashDetector
+    HAS_LEGACY_MODELS = True
+except ImportError as e:
+    print(f"UYARI: Legacy modeller yüklenemedi: {e}")
+    MarkovModel = DummyModel
+    PatternMatcher = DummyModel  
+    CrashDetector = DummyModel
+    HAS_LEGACY_MODELS = False
 
 
 class JetXPredictor:
@@ -55,12 +122,15 @@ class JetXPredictor:
         
         # Legacy support
         self.models = {}
-        self.confidence_estimator = ConfidenceEstimator()
+        self.confidence_estimator = MultiFactorConfidenceEstimator(
+            history_size=500,
+            model_update_threshold_hours=24
+        )
         self.crash_detector = None
         
         # Parametreler
         self.threshold = 1.5
-        self.training_window_size = 3000  # Artırıldı daha iyi accuracy için
+        self.training_window_size = 5000  # Artırıldı çok daha iyi accuracy için
         self.min_confidence_threshold = 0.55  # Azaltıldı daha fazla tahmin için
         
         # Model durumu
@@ -84,13 +154,19 @@ class JetXPredictor:
             success = self.hybrid_predictor.save_models()
             
             # Confidence estimator kaydet
-            conf_path = os.path.join(self.models_path, "confidence_estimator.joblib")
-            joblib.dump(self.confidence_estimator, conf_path)
+            conf_path = os.path.join(self.models_path, "confidence_estimator.pkl")
+            with open(conf_path, 'wb') as f:
+                pickle.dump(self.confidence_estimator, f)
+            
+            # Confidence data'yı JSON olarak da kaydet
+            conf_data_path = os.path.join(self.models_path, "confidence_data.json")
+            self.confidence_estimator.save_confidence_data(conf_data_path)
             
             # Crash detector varsa kaydet
             if self.crash_detector:
-                crash_path = os.path.join(self.models_path, "crash_detector.joblib")
-                joblib.dump(self.crash_detector, crash_path)
+                crash_path = os.path.join(self.models_path, "crash_detector.pkl")
+                with open(crash_path, 'wb') as f:
+                    pickle.dump(self.crash_detector, f)
             
             # Metadata kaydet
             metadata = {
@@ -100,8 +176,9 @@ class JetXPredictor:
                 'threshold': self.threshold,
                 'version': 'enhanced_v2'
             }
-            metadata_path = os.path.join(self.models_path, "predictor_metadata.joblib")
-            joblib.dump(metadata, metadata_path)
+            metadata_path = os.path.join(self.models_path, "predictor_metadata.pkl")
+            with open(metadata_path, 'wb') as f:
+                pickle.dump(metadata, f)
             
             if success:
                 print("Enhanced sistem başarıyla kaydedildi.")
@@ -129,21 +206,30 @@ class JetXPredictor:
                 print("  -> Hibrit sistem yüklendi")
             
             # Confidence estimator yükle
-            conf_path = os.path.join(self.models_path, "confidence_estimator.joblib")
+            conf_path = os.path.join(self.models_path, "confidence_estimator.pkl")
             if os.path.exists(conf_path):
-                self.confidence_estimator = joblib.load(conf_path)
+                with open(conf_path, 'rb') as f:
+                    self.confidence_estimator = pickle.load(f)
                 print("  -> Confidence estimator yüklendi")
+                
+                # Confidence data'yı da yükle
+                conf_data_path = os.path.join(self.models_path, "confidence_data.json")
+                if os.path.exists(conf_data_path):
+                    self.confidence_estimator.load_confidence_data(conf_data_path)
+                    print("  -> Confidence data yüklendi")
             
             # Crash detector yükle
-            crash_path = os.path.join(self.models_path, "crash_detector.joblib")
+            crash_path = os.path.join(self.models_path, "crash_detector.pkl")
             if os.path.exists(crash_path):
-                self.crash_detector = joblib.load(crash_path)
+                with open(crash_path, 'rb') as f:
+                    self.crash_detector = pickle.load(f)
                 print("  -> Crash detector yüklendi")
             
             # Metadata yükle
-            metadata_path = os.path.join(self.models_path, "predictor_metadata.joblib")
+            metadata_path = os.path.join(self.models_path, "predictor_metadata.pkl")
             if os.path.exists(metadata_path):
-                metadata = joblib.load(metadata_path)
+                with open(metadata_path, 'rb') as f:
+                    metadata = pickle.load(f)
                 self.last_training_time = metadata.get('timestamp')
                 print(f"  -> Metadata yüklendi: {self.last_training_time}")
             
@@ -187,7 +273,7 @@ class JetXPredictor:
                 except Exception as e:
                     print(f"     HATA: Model '{name}' Fold {i+1} için eğitilemedi: {e}")
 
-            min_history = 201 
+            min_history = 350  # Artırıldı daha güvenli meta-features için
             if len(test_data) < min_history:
                 continue
 
@@ -206,17 +292,19 @@ class JetXPredictor:
                 fold_meta_features.append(model_predictions)
             
             if fold_meta_features:
-                stacked_features = np.array(fold_meta_features).T
-                meta_features.extend(stacked_features)
-                actual_labels = (test_data[min_history:] >= self.threshold).astype(int)
+                # Convert to list format for compatibility
+                for i in range(len(fold_meta_features[0])):
+                    feature_row = [fold_meta_features[j][i] for j in range(len(fold_meta_features))]
+                    meta_features.append(feature_row)
+                actual_labels = [1 if val >= self.threshold else 0 for val in test_data[min_history:]]
                 meta_labels.extend(actual_labels)
 
         if not meta_features:
             print("UYARI: Stacking için hiç meta-özellik oluşturulamadı.")
-            return np.array([]), np.array([])
+            return [], []
 
         print(f"Meta-veri seti başarıyla oluşturuldu. Toplam {len(meta_features)} örnek.")
-        return np.array(meta_features), np.array(meta_labels)
+        return meta_features, meta_labels
 
     def load_data(self, limit=None):
         if limit:
@@ -243,8 +331,8 @@ class JetXPredictor:
         # Veri hazırlama
         data = data.tail(self.training_window_size).copy()
         
-        if len(data) < 500:
-            print(f"Eğitim için yeterli veri bulunamadı! (Mevcut: {len(data)}, Gerekli: 500+)")
+        if len(data) < 1000:
+            print(f"Eğitim için yeterli veri bulunamadı! (Mevcut: {len(data)}, Gerekli: 1000+)")
             return False
             
         values = data['value'].values
@@ -256,7 +344,7 @@ class JetXPredictor:
             # Enhanced LSTM
             print("Enhanced LSTM eğitiliyor...")
             lstm_model = EnhancedLSTMModel(
-                seq_length=min(200, len(values) // 10),
+                seq_length=min(500, max(300, len(values) // 10)),
                 threshold=self.threshold
             )
             lstm_model.build_model(
@@ -272,7 +360,7 @@ class JetXPredictor:
             # Enhanced Transformer
             print("Enhanced Transformer eğitiliyor...")
             transformer_model = EnhancedTransformerModel(
-                seq_length=min(150, len(values) // 12),
+                seq_length=min(400, max(250, len(values) // 12)),
                 threshold=self.threshold
             )
             transformer_model.build_model(
@@ -313,7 +401,7 @@ class JetXPredictor:
             sequences = []
             labels = []
             
-            sequence_length = 100
+            sequence_length = 200  # Artırıldı daha uzun pattern recognition için
             for i in range(len(values) - sequence_length):
                 seq = values[i:i + sequence_length].tolist()
                 next_val = values[i + sequence_length]
@@ -338,7 +426,11 @@ class JetXPredictor:
             
             # 4. Confidence estimator güncellle
             print("Confidence estimator güncelleniyor...")
-            # Bu boş kalabilir, runtime'da güncellenecek
+            # Model metadata'sını güncelle
+            self.confidence_estimator.update_model_metadata(
+                last_updated=datetime.now(),
+                training_data_quality=0.8
+            )
             
             # Eğitim tamamlandı
             self.is_trained = True
@@ -373,7 +465,7 @@ class JetXPredictor:
                 return None
             recent_values = df['value'].values
 
-        MIN_DATA_FOR_PREDICTION = 100  # Azaltıldı
+        MIN_DATA_FOR_PREDICTION = 300  # Artırıldı daha stabil tahminler için
         if len(recent_values) < MIN_DATA_FOR_PREDICTION:
             print(f"HATA: Yeterli veri yok ({len(recent_values)}/{MIN_DATA_FOR_PREDICTION})")
             return None
@@ -390,7 +482,7 @@ class JetXPredictor:
             start_time = datetime.now()
             
             predicted_value, above_threshold_prob, confidence = self.hybrid_predictor.predict_next_value(
-                recent_values[-200:]  # Son 200 veri yeterli
+                recent_values[-400:]  # Son 400 veri ile daha güvenli tahmin
             )
             
             prediction_time = (datetime.now() - start_time).total_seconds()
@@ -399,7 +491,7 @@ class JetXPredictor:
             if predicted_value is None:
                 above_threshold_prob = 0.5
                 confidence = 0.0
-                predicted_value = np.mean(recent_values[-10:])
+                predicted_value = statistics.mean(recent_values[-10:])
             
             print(f"  -> Hibrit sonuçlar: değer={predicted_value:.2f}, prob={above_threshold_prob:.2f}, güven={confidence:.2f}")
             
@@ -407,19 +499,30 @@ class JetXPredictor:
             crash_risk_score = 0.0
             if self.crash_detector:
                 try:
-                    crash_risk_score = self.crash_detector.predict_crash_risk(recent_values[-20:])
+                    crash_risk_score = self.crash_detector.predict_crash_risk(recent_values[-50:])
                     print(f"  -> Crash risk: {crash_risk_score:.2f}")
                 except:
                     pass
             
-            # 3. Final confidence calculation
-            final_confidence = self.confidence_estimator.estimate_confidence(
+            # 3. Multi-factor confidence calculation
+            confidence_analysis = self.confidence_estimator.estimate_confidence(
                 predicted_value, above_threshold_prob
             )
             
+            # Çoklu faktör güven skoru
+            multi_factor_confidence = confidence_analysis['total_confidence']
+            
             # Hibrit confidence ile kombine et
-            combined_confidence = (final_confidence + confidence) / 2
+            combined_confidence = (multi_factor_confidence + confidence) / 2
             combined_confidence = max(0.0, min(1.0, combined_confidence))
+            
+            # Detaylı güven bilgilerini logla
+            print(f"  -> Güven Analizi:")
+            print(f"     Seviye: {confidence_analysis['confidence_level']}")
+            print(f"     Toplam: {multi_factor_confidence:.3f}")
+            print(f"     Faktörler: {', '.join([f'{k}: {v:.2f}' for k, v in confidence_analysis['factors'].items()])}")
+            if confidence_analysis['recommendations']:
+                print(f"     Öneriler: {'; '.join(confidence_analysis['recommendations'])}")
             
             # 4. Decision making
             if combined_confidence < self.min_confidence_threshold:
@@ -430,7 +533,8 @@ class JetXPredictor:
                     'above_threshold_probability': above_threshold_prob,
                     'confidence_score': combined_confidence,
                     'crash_risk_by_special_model': crash_risk_score,
-                    'decision_text': 'Belirsiz (Düşük Güven)'
+                    'decision_text': 'Belirsiz (Düşük Güven)',
+                    'confidence_analysis': confidence_analysis
                 }
             else:
                 # Decision threshold
@@ -449,7 +553,8 @@ class JetXPredictor:
                     'above_threshold_probability': above_threshold_prob,
                     'confidence_score': combined_confidence,
                     'crash_risk_by_special_model': crash_risk_score,
-                    'decision_text': '1.5 ÜZERİNDE' if final_decision else '1.5 ALTINDA'
+                    'decision_text': '1.5 ÜZERİNDE' if final_decision else '1.5 ALTINDA',
+                    'confidence_analysis': confidence_analysis
                 }
             
             # 5. Tahmin kaydet
@@ -491,12 +596,13 @@ class JetXPredictor:
                 if row:
                     last_predicted_val = row[0]
                     initial_confidence = row[1] if row[1] is not None else 0.5
-                    if np.isnan(initial_confidence):
+                    if math.isnan(initial_confidence):
                         initial_confidence = 0.5
                     self.confidence_estimator.add_prediction(
                         last_predicted_val, 
                         actual_value, 
-                        initial_confidence
+                        initial_confidence,
+                        timestamp=datetime.now()
                     )
                 else:
                     print(f"UYARI: ConfidenceEstimator için ID'si {prediction_id} olan tahmin veritabanında bulunamadı.")

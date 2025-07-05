@@ -1,13 +1,43 @@
 import os
-import joblib
-import numpy as np
-import pandas as pd
+import pickle
+import statistics
+import math
 import sqlite3
 from datetime import datetime
 import json
 import pickle
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+# Conditional sklearn imports
+try:
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+    HAS_SKLEARN = True
+except ImportError:
+    print("UYARI: Sklearn yüklü değil, temel işlevsellik sınırlı olacak")
+    
+    # Dummy implementations
+    class TimeSeriesSplit:
+        def __init__(self, n_splits=5):
+            self.n_splits = n_splits
+        def split(self, X):
+            n = len(X)
+            fold_size = n // self.n_splits
+            for i in range(self.n_splits):
+                start = i * fold_size
+                end = start + fold_size
+                train_idx = list(range(0, start)) + list(range(end, n))
+                test_idx = list(range(start, end))
+                yield train_idx, test_idx
+    
+    def accuracy_score(y_true, y_pred):
+        return sum(1 for a, b in zip(y_true, y_pred) if a == b) / len(y_true)
+    
+    def classification_report(y_true, y_pred, output_dict=False):
+        return {} if output_dict else ""
+    
+    def roc_auc_score(y_true, y_score):
+        return 0.5
+    
+    HAS_SKLEARN = False
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -44,7 +74,7 @@ class ModelManager:
         for directory in directories:
             os.makedirs(directory, exist_ok=True)
     
-    def prepare_training_data(self, window_size=5000, sequence_length=100, test_ratio=0.2):
+    def prepare_training_data(self, window_size=5000, sequence_length=200, test_ratio=0.2):
         """
         Eğitim verilerini optimize edilmiş şekilde hazırla
         """
@@ -54,14 +84,16 @@ class ModelManager:
         try:
             conn = sqlite3.connect(self.db_path)
             query = f"SELECT value FROM jetx_results ORDER BY id DESC LIMIT {window_size}"
-            df = pd.read_sql_query(query, conn)
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
             conn.close()
             
-            if len(df) < sequence_length * 2:
-                print(f"HATA: Yeterli veri yok. Mevcut: {len(df)}, Gerekli: {sequence_length * 2}")
+            if len(rows) < sequence_length * 3:
+                print(f"HATA: Yeterli veri yok. Mevcut: {len(rows)}, Gerekli: {sequence_length * 3}")
                 return None
                 
-            values = df['value'].values[::-1]  # Doğru sıralama
+            values = [row[0] for row in rows][::-1]  # Doğru sıralama
             
         except Exception as e:
             print(f"Veri yükleme hatası: {e}")
@@ -122,8 +154,8 @@ class ModelManager:
         print("Features çıkarılıyor...")
         X_train = feature_extractor.extract_batch_features(train_data['sequences'])
         X_test = feature_extractor.extract_batch_features(test_data['sequences'])
-        y_train = np.array(train_data['labels'])
-        y_test = np.array(test_data['labels'])
+        y_train = train_data['labels']
+        y_test = test_data['labels']
         
         # Model training
         if 'rf' in model_types:
@@ -172,6 +204,10 @@ class ModelManager:
     
     def _train_random_forest(self, X, y):
         """Optimize Random Forest"""
+        if not HAS_SKLEARN:
+            print("Sklearn gerekli, dummy model döndürülüyor")
+            return {'model': None, 'scaler': None, 'type': 'dummy'}
+            
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.preprocessing import StandardScaler
         
@@ -200,6 +236,10 @@ class ModelManager:
     
     def _train_gradient_boosting(self, X, y):
         """Optimize Gradient Boosting"""
+        if not HAS_SKLEARN:
+            print("Sklearn gerekli, dummy model döndürülüyor")
+            return {'model': None, 'scaler': None, 'type': 'dummy'}
+            
         from sklearn.ensemble import GradientBoostingClassifier
         from sklearn.preprocessing import StandardScaler
         
@@ -226,6 +266,10 @@ class ModelManager:
     
     def _train_svm(self, X, y):
         """Optimize SVM"""
+        if not HAS_SKLEARN:
+            print("Sklearn gerekli, dummy model döndürülüyor")
+            return {'model': None, 'scaler': None, 'type': 'dummy'}
+            
         from sklearn.svm import SVC
         from sklearn.preprocessing import StandardScaler
         
@@ -285,8 +329,8 @@ class ModelManager:
             weight = ensemble['weights'][model_name]
             predictions.append(proba * weight)
         
-        ensemble_proba = np.sum(predictions, axis=0)
-        ensemble_pred = (ensemble_proba > 0.5).astype(int)
+        ensemble_proba = [sum(pred_list) for pred_list in zip(*predictions)]
+        ensemble_pred = [1 if prob > 0.5 else 0 for prob in ensemble_proba]
         
         return {
             'accuracy': accuracy_score(y_test, ensemble_pred),
@@ -385,7 +429,7 @@ class ModelManager:
         try:
             # Feature extraction
             features = model_package['feature_extractor'].extract_features(sequence)
-            X = np.array(features).reshape(1, -1)
+            X = [features]  # Single sample as list
             
             # Ensemble prediction
             ensemble = model_package['ensemble']
@@ -397,7 +441,7 @@ class ModelManager:
                 weight = ensemble['weights'][model_name]
                 predictions.append(proba * weight)
             
-            ensemble_proba = np.sum(predictions)
+            ensemble_proba = sum(predictions)
             
             # Confidence calculation
             individual_probas = []
@@ -406,11 +450,11 @@ class ModelManager:
                 proba = model_info['model'].predict_proba(X_scaled)[0][1]
                 individual_probas.append(proba)
             
-            confidence = 1.0 - np.std(individual_probas)  # Model agreement
+            confidence = 1.0 - statistics.stdev(individual_probas) if len(individual_probas) > 1 else 0.5  # Model agreement
             confidence = max(0.0, min(1.0, confidence))
             
             # Predicted value
-            predicted_value = np.mean(sequence[-10:]) * (1.3 if ensemble_proba > 0.6 else 0.75)
+            predicted_value = statistics.mean(sequence[-10:]) * (1.3 if ensemble_proba > 0.6 else 0.75)
             
             return predicted_value, ensemble_proba, confidence
             
@@ -429,45 +473,55 @@ class EnhancedFeatureExtractor:
         
     def extract_features(self, sequence):
         """Tek sequence için özellik çıkar"""
-        seq = np.array(sequence)
+        seq = list(sequence)
         features = []
         
         # Basic statistics
+        seq_sorted = sorted(seq)
+        n = len(seq_sorted)
         features.extend([
-            np.mean(seq),
-            np.std(seq),
-            np.max(seq),
-            np.min(seq),
-            np.median(seq),
-            np.percentile(seq, 25),
-            np.percentile(seq, 75),
+            statistics.mean(seq),
+            statistics.stdev(seq) if len(seq) > 1 else 0.0,
+            max(seq),
+            min(seq),
+            statistics.median(seq),
+            seq_sorted[n//4] if n >= 4 else seq_sorted[0],  # Q1
+            seq_sorted[3*n//4] if n >= 4 else seq_sorted[-1],  # Q3
         ])
         
         # Threshold-based features
         for threshold in [1.3, 1.5, 2.0, 3.0, 5.0]:
-            features.append(np.mean(seq >= threshold))
+            above_threshold = sum(1 for val in seq if val >= threshold)
+            features.append(above_threshold / len(seq))
         
         # Rolling statistics
         for window in [5, 10, 20]:
             if len(seq) >= window:
                 rolling_seq = seq[-window:]
                 features.extend([
-                    np.mean(rolling_seq),
-                    np.std(rolling_seq),
-                    np.max(rolling_seq),
-                    np.min(rolling_seq)
+                    statistics.mean(rolling_seq),
+                    statistics.stdev(rolling_seq) if len(rolling_seq) > 1 else 0.0,
+                    max(rolling_seq),
+                    min(rolling_seq)
                 ])
             else:
-                features.extend([np.mean(seq), np.std(seq), np.max(seq), np.min(seq)])
+                features.extend([
+                    statistics.mean(seq), 
+                    statistics.stdev(seq) if len(seq) > 1 else 0.0, 
+                    max(seq), 
+                    min(seq)
+                ])
         
         # Trend features
         if len(seq) > 1:
-            diff = np.diff(seq)
+            diff = [seq[i] - seq[i-1] for i in range(1, len(seq))]
+            positive_diff = sum(1 for d in diff if d > 0)
+            negative_diff = sum(1 for d in diff if d < 0)
             features.extend([
-                np.mean(diff),
-                np.std(diff),
-                np.mean(diff > 0),
-                np.mean(diff < 0)
+                statistics.mean(diff),
+                statistics.stdev(diff) if len(diff) > 1 else 0.0,
+                positive_diff / len(diff),
+                negative_diff / len(diff)
             ])
         else:
             features.extend([0, 0, 0.5, 0.5])
@@ -492,11 +546,15 @@ class EnhancedFeatureExtractor:
         
         # Volatility features
         if len(seq) > 2:
-            returns = np.diff(seq) / seq[:-1]
-            features.extend([
-                np.std(returns),
-                np.mean(np.abs(returns))
-            ])
+            returns = [(seq[i] - seq[i-1]) / seq[i-1] for i in range(1, len(seq)) if seq[i-1] != 0]
+            if returns:
+                abs_returns = [abs(r) for r in returns]
+                features.extend([
+                    statistics.stdev(returns) if len(returns) > 1 else 0.0,
+                    statistics.mean(abs_returns)
+                ])
+            else:
+                features.extend([0, 0])
         else:
             features.extend([0, 0])
         
@@ -513,4 +571,4 @@ class EnhancedFeatureExtractor:
             features = self.extract_features(seq)
             features_list.append(features)
         
-        return np.array(features_list)
+        return features_list

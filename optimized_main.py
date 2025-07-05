@@ -1,5 +1,6 @@
 import streamlit as st
-import numpy as np
+import statistics
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
@@ -302,6 +303,12 @@ with col2:
         else:
             conf_class = "uncertain-confidence"
             conf_icon = "⚪"
+        
+        # Detaylı güven analizi
+        confidence_analysis = pred.get('confidence_analysis', {})
+        confidence_level = confidence_analysis.get('confidence_level', 'Belirsiz')
+        factors = confidence_analysis.get('factors', {})
+        recommendations = confidence_analysis.get('recommendations', [])
 
         # Decision text ve class
         above_threshold = pred.get('above_threshold')
@@ -343,8 +350,91 @@ with col2:
                     <span style="font-size: 18px;">{"✅" if pred.get('cache_hit') else "❌"}</span>
                 </div>
             </div>
+            
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                <strong>📊 Güven Seviyesi:</strong> {confidence_level}
+            </div>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Detaylı güven analizi expander
+        if factors:
+            with st.expander("🔍 Detaylı Güven Analizi"):
+                st.subheader("📈 Güven Faktörleri")
+                
+                # Faktörleri progress bar ile göster
+                for factor_name, factor_value in factors.items():
+                    factor_display_name = {
+                        'model_performance': '🎯 Model Performansı',
+                        'data_quality': '📊 Veri Kalitesi',
+                        'temporal_consistency': '⏱️ Zamansal Tutarlılık',
+                        'market_volatility': '📈 Piyasa Volatilitesi',
+                        'prediction_certainty': '🎲 Tahmin Kesinliği',
+                        'model_freshness': '🔄 Model Tazeliği',
+                        'trend_alignment': '📊 Trend Uyumu'
+                    }.get(factor_name, factor_name)
+                    
+                    st.write(f"**{factor_display_name}**")
+                    st.progress(factor_value, text=f"{factor_value:.1%}")
+                
+                # Öneriler
+                if recommendations:
+                    st.subheader("💡 Öneriler")
+                    for rec in recommendations:
+                        st.write(f"• {rec}")
+        
+        # Güven geçmişi
+        if hasattr(st.session_state, 'prediction_history') and st.session_state.prediction_history:
+            with st.expander("📈 Güven Geçmişi"):
+                recent_predictions = st.session_state.prediction_history[-10:]
+                
+                confidence_values = []
+                timestamps = []
+                
+                for pred_record in recent_predictions:
+                    pred_data = pred_record.get('prediction', {})
+                    conf_analysis = pred_data.get('confidence_analysis', {})
+                    
+                    if conf_analysis:
+                        confidence_values.append(conf_analysis.get('total_confidence', 0))
+                        timestamps.append(pred_record.get('timestamp', datetime.now()))
+                
+                if confidence_values:
+                    # Güven trend grafiği
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Scatter(
+                        x=list(range(len(confidence_values))),
+                        y=confidence_values,
+                        mode='lines+markers',
+                        name='Güven Skoru',
+                        line=dict(color='blue', width=3),
+                        marker=dict(size=8)
+                    ))
+                    
+                    fig.add_hline(
+                        y=0.8, 
+                        line_dash="dash", 
+                        line_color="green",
+                        annotation_text="Yüksek Güven (0.8)"
+                    )
+                    
+                    fig.add_hline(
+                        y=0.5, 
+                        line_dash="dash", 
+                        line_color="orange",
+                        annotation_text="Orta Güven (0.5)"
+                    )
+                    
+                    fig.update_layout(
+                        title="Son 10 Tahmin Güven Skoru Trendi",
+                        xaxis_title="Tahmin Sırası",
+                        yaxis_title="Güven Skoru",
+                        height=300,
+                        yaxis=dict(range=[0, 1])
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
 
         # Hızlı tekrar tahmin butonu
         if st.button("🔄 Yeniden Tahmin Et"):
@@ -404,19 +494,19 @@ if st.session_state.last_values:
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        avg_val = np.mean(values)
+        avg_val = statistics.mean(values)
         st.metric("📊 Ortalama", f"{avg_val:.2f}")
     
     with col2:
-        above_threshold_ratio = np.mean(np.array(values) >= 1.5)
+        above_threshold_ratio = sum(1 for v in values if v >= 1.5) / len(values)
         st.metric("📈 1.5+ Oranı", f"{above_threshold_ratio:.1%}")
     
     with col3:
-        max_val = np.max(values)
+        max_val = max(values)
         st.metric("🔺 Maksimum", f"{max_val:.2f}")
     
     with col4:
-        volatility = np.std(values)
+        volatility = statistics.stdev(values) if len(values) > 1 else 0.0
         st.metric("📊 Volatilite", f"{volatility:.2f}")
 
 # Sidebar - Gelişmiş Ayarlar

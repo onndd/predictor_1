@@ -1,11 +1,39 @@
 import streamlit as st
-import numpy as np
-import pandas as pd
+import statistics
+import math
 import matplotlib.pyplot as plt
 import time
 import os
 import warnings
 from datetime import datetime
+
+# Pandas fallback for compatibility
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+    print("UYARI: Pandas yüklü değil, sınırlı UI işlevselliği")
+    
+    # Minimal DataFrame-like class for UI
+    class DataFrame:
+        def __init__(self, data):
+            self.data = data
+        
+        def __getitem__(self, key):
+            return self.data[key]
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def mean(self):
+            return statistics.mean(self.data)
+    
+    # Create a minimal pandas-like module
+    class pd:
+        @staticmethod
+        def DataFrame(data):
+            return data  # Just return the data as-is for simple cases
 
 # Uyarıları gizle
 warnings.filterwarnings('ignore')
@@ -226,6 +254,12 @@ with col2:
             confidence_class = "medium-confidence"
         else:
             confidence_class = "low-confidence"
+        
+        # Detaylı güven analizi
+        confidence_analysis = prediction.get('confidence_analysis', {})
+        confidence_level = confidence_analysis.get('confidence_level', 'Belirsiz')
+        factors = confidence_analysis.get('factors', {})
+        recommendations = confidence_analysis.get('recommendations', [])
 
         # Threshold durumuna göre stil
         threshold_class = "above-threshold" if prediction['above_threshold'] else "below-threshold"
@@ -239,8 +273,33 @@ with col2:
             <p style="font-size: 18px;">Tahmini değer: <b>{prediction['predicted_value']:.2f}</b></p>
             <p style="font-size: 18px;">1.5 üstü olasılığı: <b>{prediction['above_threshold_probability']:.2f}</b></p>
             <p style="font-size: 18px;">Güven skoru: <b>{prediction['confidence_score']:.2f}</b></p>
+            <p style="font-size: 16px; margin-top: 15px; color: #666;">📈 Güven seviyesi: <b>{confidence_level}</b></p>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Detaylı güven analizi
+        if factors:
+            with st.expander("🔍 Detaylı Güven Analizi"):
+                st.subheader("📊 Güven Faktörleri")
+                
+                for factor_name, factor_value in factors.items():
+                    factor_display_name = {
+                        'model_performance': '🎯 Model Performansı',
+                        'data_quality': '📊 Veri Kalitesi',
+                        'temporal_consistency': '⏱️ Zamansal Tutarlılık',
+                        'market_volatility': '📈 Piyasa Volatilitesi',
+                        'prediction_certainty': '🎲 Tahmin Kesinliği',
+                        'model_freshness': '🔄 Model Tazeliği',
+                        'trend_alignment': '📊 Trend Uyumu'
+                    }.get(factor_name, factor_name)
+                    
+                    st.write(f"**{factor_display_name}**: {factor_value:.1%}")
+                    st.progress(factor_value)
+                
+                if recommendations:
+                    st.subheader("💡 Öneriler")
+                    for rec in recommendations:
+                        st.write(f"• {rec}")
 
 
 

@@ -1,5 +1,5 @@
-import numpy as np
-import pandas as pd
+import statistics
+import math
 import sqlite3
 import time
 import warnings
@@ -128,8 +128,8 @@ class OptimizedJetXPredictor:
         if recent_values is None:
             recent_values = self._load_recent_data(limit=200)
             
-        if len(recent_values) < 50:
-            print(f"❌ Yeterli veri yok! Mevcut: {len(recent_values)}, Gerekli: 50+")
+        if len(recent_values) < 150:
+            print(f"❌ Yeterli veri yok! Mevcut: {len(recent_values)}, Gerekli: 150+")
             return None
         
         # Hızlı tahmin
@@ -137,7 +137,7 @@ class OptimizedJetXPredictor:
         
         try:
             # Cache kontrolü
-            cache_key = tuple(recent_values[-50:])  # Son 50 değerle cache
+            cache_key = tuple(recent_values[-100:])  # Son 100 değerle cache
             if use_cache and cache_key in self.feature_cache:
                 features = self.feature_cache[cache_key]
                 cache_hit = True
@@ -148,7 +148,7 @@ class OptimizedJetXPredictor:
             # Ensemble prediction
             predicted_value, probability, confidence = self.model_manager.predict_with_ensemble(
                 self.current_models, 
-                recent_values[-100:]  # Son 100 değer yeterli
+                recent_values[-200:]  # Son 200 değer ile daha stabil tahmin
             )
             
             prediction_time = time.time() - start_time
@@ -200,7 +200,7 @@ class OptimizedJetXPredictor:
             
             # Performance log (her 10 tahminde bir)
             if self.prediction_count % 10 == 0:
-                avg_time = np.mean(self.prediction_times[-10:]) * 1000
+                avg_time = statistics.mean(self.prediction_times[-10:]) * 1000
                 print(f"📊 Ortalama tahmin süresi (son 10): {avg_time:.1f}ms")
             
             return result
@@ -216,10 +216,14 @@ class OptimizedJetXPredictor:
         try:
             conn = sqlite3.connect(self.db_path)
             query = f"SELECT value FROM jetx_results ORDER BY id DESC LIMIT {limit}"
-            df = pd.read_sql_query(query, conn)
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
             conn.close()
             
-            return df['value'].values[::-1].tolist()  # Doğru sıralama
+            # Extract values and reverse order
+            values = [row[0] for row in rows]
+            return values[::-1]  # Doğru sıralama
             
         except Exception as e:
             print(f"Veri yükleme hatası: {e}")
@@ -248,9 +252,9 @@ class OptimizedJetXPredictor:
         
         stats = {
             'total_predictions': len(self.prediction_times),
-            'avg_prediction_time_ms': np.mean(self.prediction_times) * 1000,
-            'min_prediction_time_ms': np.min(self.prediction_times) * 1000,
-            'max_prediction_time_ms': np.max(self.prediction_times) * 1000,
+            'avg_prediction_time_ms': statistics.mean(self.prediction_times) * 1000,
+            'min_prediction_time_ms': min(self.prediction_times) * 1000,
+            'max_prediction_time_ms': max(self.prediction_times) * 1000,
             'cache_hit_ratio': len(self.feature_cache) / max(1, self.prediction_count),
             'model_info': self.current_models['metadata'] if self.current_models else None
         }
@@ -364,11 +368,11 @@ class OptimizedJetXPredictor:
         
         results = {
             'num_tests': num_tests,
-            'avg_time_ms': np.mean(times) * 1000,
-            'min_time_ms': np.min(times) * 1000,
-            'max_time_ms': np.max(times) * 1000,
-            'std_time_ms': np.std(times) * 1000,
-            'predictions_per_second': 1.0 / np.mean(times)
+            'avg_time_ms': statistics.mean(times) * 1000,
+            'min_time_ms': min(times) * 1000,
+            'max_time_ms': max(times) * 1000,
+            'std_time_ms': statistics.stdev(times) * 1000 if len(times) > 1 else 0,
+            'predictions_per_second': 1.0 / statistics.mean(times)
         }
         
         print(f"\n📊 Benchmark Sonuçları:")
