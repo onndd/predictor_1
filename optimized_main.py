@@ -1,5 +1,6 @@
 import streamlit as st
-import numpy as np
+import statistics
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
@@ -493,19 +494,19 @@ if st.session_state.last_values:
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        avg_val = np.mean(values)
+        avg_val = statistics.mean(values)
         st.metric("📊 Ortalama", f"{avg_val:.2f}")
     
     with col2:
-        above_threshold_ratio = np.mean(np.array(values) >= 1.5)
+        above_threshold_ratio = sum(1 for v in values if v >= 1.5) / len(values)
         st.metric("📈 1.5+ Oranı", f"{above_threshold_ratio:.1%}")
     
     with col3:
-        max_val = np.max(values)
+        max_val = max(values)
         st.metric("🔺 Maksimum", f"{max_val:.2f}")
     
     with col4:
-        volatility = np.std(values)
+        volatility = statistics.stdev(values) if len(values) > 1 else 0.0
         st.metric("📊 Volatilite", f"{volatility:.2f}")
 
 # Sidebar - Gelişmiş Ayarlar

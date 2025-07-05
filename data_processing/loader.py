@@ -1,6 +1,46 @@
 import sqlite3
-import pandas as pd
-import numpy as np
+
+class DataFrameAlternative:
+    """Pandas DataFrame'e basit alternatif"""
+    def __init__(self, data=None, columns=None):
+        if data is None:
+            self.data = []
+            self.columns = columns or []
+        else:
+            self.data = data
+            self.columns = columns or list(range(len(data[0]) if data else []))
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, key):
+        if isinstance(key, str) and key in self.columns:
+            col_idx = self.columns.index(key)
+            return ColumnData([row[col_idx] for row in self.data])
+        return self.data[key]
+    
+    @property
+    def empty(self):
+        return len(self.data) == 0
+    
+    def tail(self, n):
+        new_data = self.data[-n:] if n <= len(self.data) else self.data
+        return DataFrameAlternative(new_data, self.columns)
+
+class ColumnData:
+    """Pandas Series'e basit alternatif"""
+    def __init__(self, values):
+        self.values = values
+    
+    def __getitem__(self, index):
+        return self.values[index]
+    
+    def __len__(self):
+        return len(self.values)
+    
+    def mean(self):
+        import statistics
+        return statistics.mean(self.values) if self.values else 0
 
 def load_data_from_sqlite(db_path="jetx_data.db", limit=None):
     """
@@ -11,7 +51,7 @@ def load_data_from_sqlite(db_path="jetx_data.db", limit=None):
         limit: Yüklenecek son kayıt sayısı (None=tümü)
     
     Returns:
-        pandas.DataFrame: Yüklenen veriler
+        DataFrameAlternative: Yüklenen veriler
     """
     conn = sqlite3.connect(db_path)
     
@@ -41,9 +81,17 @@ def load_data_from_sqlite(db_path="jetx_data.db", limit=None):
     else:
         query = "SELECT * FROM jetx_results ORDER BY id"
     
-    df = pd.read_sql_query(query, conn)
+    cursor = conn.cursor()
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    
+    # Column names
+    column_names = [description[0] for description in cursor.description]
+    
     conn.close()
     
+    # DataFrameAlternative oluştur
+    df = DataFrameAlternative(rows, column_names)
     return df
 
 def save_result_to_sqlite(value, db_path="jetx_data.db"):

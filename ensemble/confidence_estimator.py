@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERRORimport math
+import math
 import statistics
 from datetime import datetime, timedelta
 import json
@@ -183,7 +183,7 @@ class MultiFactorConfidenceEstimator:
         Piyasa Volatilitesi Adaptasyon Faktörü (0.0 - 1.0)
         Yüksek volatilite = düşük güven
         """
-        if len(self.volatility_history) < 10:
+        if len(self.volatility_history) < 30:
             return 0.7
         
         current_volatility = statistics.mean(self.volatility_history[-10:])
