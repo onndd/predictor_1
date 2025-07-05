@@ -1,12 +1,39 @@
 import streamlit as st
 import statistics
 import math
-import pandas as pd
 import matplotlib.pyplot as plt
 import time
 import os
 import warnings
 from datetime import datetime
+
+# Pandas fallback for compatibility
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+    print("UYARI: Pandas yüklü değil, sınırlı UI işlevselliği")
+    
+    # Minimal DataFrame-like class for UI
+    class DataFrame:
+        def __init__(self, data):
+            self.data = data
+        
+        def __getitem__(self, key):
+            return self.data[key]
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def mean(self):
+            return statistics.mean(self.data)
+    
+    # Create a minimal pandas-like module
+    class pd:
+        @staticmethod
+        def DataFrame(data):
+            return data  # Just return the data as-is for simple cases
 
 # Uyarıları gizle
 warnings.filterwarnings('ignore')

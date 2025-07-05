@@ -105,14 +105,23 @@ def save_result_to_sqlite(value, db_path="jetx_data.db"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # Tablo yoksa oluştur
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS jetx_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        value REAL NOT NULL
+    )
+    ''')
+    
     cursor.execute('''
     INSERT INTO jetx_results (value) VALUES (?)
     ''', (value,))
     
     conn.commit()
+    record_id = cursor.lastrowid
     conn.close()
     
-    return cursor.lastrowid
+    return record_id
 
 def save_prediction_to_sqlite(prediction_data, db_path="jetx_data.db"):
     """
@@ -125,6 +134,18 @@ def save_prediction_to_sqlite(prediction_data, db_path="jetx_data.db"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # Tablo yoksa oluştur
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS predictions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        predicted_value REAL,
+        confidence_score REAL,
+        above_threshold INTEGER,
+        actual_value REAL,
+        was_correct INTEGER
+    )
+    ''')
+    
     cursor.execute('''
     INSERT INTO predictions 
     (predicted_value, confidence_score, above_threshold)
@@ -136,9 +157,10 @@ def save_prediction_to_sqlite(prediction_data, db_path="jetx_data.db"):
     ))
     
     conn.commit()
+    record_id = cursor.lastrowid
     conn.close()
     
-    return cursor.lastrowid
+    return record_id
 
 def update_prediction_result(prediction_id, actual_value, db_path="jetx_data.db"):
     """

@@ -38,6 +38,24 @@ class DummyModel:
     def add_heavy_model(self, *args, **kwargs):
         pass
 
+# TimeSeriesSplit fallback implementation
+try:
+    from sklearn.model_selection import TimeSeriesSplit
+except ImportError:
+    class TimeSeriesSplit:
+        def __init__(self, n_splits=5):
+            self.n_splits = n_splits
+        
+        def split(self, X):
+            n = len(X)
+            fold_size = n // self.n_splits
+            for i in range(self.n_splits):
+                start = i * fold_size
+                end = start + fold_size
+                train_idx = list(range(0, start)) + list(range(end, n))
+                test_idx = list(range(start, end))
+                yield train_idx, test_idx
+
 # Try importing models, fallback to dummy
 try:
     from models.hybrid_predictor import HybridPredictor, FeatureExtractor
