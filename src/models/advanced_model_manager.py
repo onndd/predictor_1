@@ -33,6 +33,16 @@ except ImportError as e:
     print(f"Warning: Existing models not available: {e}")
     HAS_EXISTING_MODELS = False
 
+# Import optimized ensemble system
+try:
+    from ..ensemble.optimized_ensemble import OptimizedEnsemble
+    from ..ensemble.simplified_confidence import SimplifiedConfidenceEstimator
+    from ..feature_engineering.unified_extractor import UnifiedFeatureExtractor
+    HAS_OPTIMIZED_ENSEMBLE = True
+except ImportError as e:
+    print(f"Warning: Optimized ensemble not available: {e}")
+    HAS_OPTIMIZED_ENSEMBLE = False
+
 class AdvancedModelManager:
     """
     Advanced Model Manager for JetX Prediction System
@@ -59,6 +69,12 @@ class AdvancedModelManager:
         # Training state
         self.is_initialized = False
         self.auto_train_heavy_models = False  # Default: manual training
+        
+        # Optimized ensemble system
+        self.optimized_ensemble = None
+        self.confidence_estimator = None
+        self.feature_extractor = None
+        self.use_optimized_ensemble = HAS_OPTIMIZED_ENSEMBLE
         
         # Model configurations
         self.setup_model_configs()
@@ -156,6 +172,10 @@ class AdvancedModelManager:
             self.initialize_heavy_models(data)
         else:
             self.initialize_heavy_models_lazy()
+        
+        # Initialize optimized ensemble if available
+        if self.use_optimized_ensemble:
+            self.initialize_optimized_ensemble(data)
         
         self.is_initialized = True
         print("Model initialization completed.")
@@ -525,3 +545,294 @@ class AdvancedModelManager:
         model_scores.sort(key=lambda x: x[1])
         
         return [model_name for model_name, _ in model_scores[:top_k]]
+
+    def initialize_optimized_ensemble(self, data: List[float]):
+        """Initialize optimized ensemble system"""
+        if not HAS_OPTIMIZED_ENSEMBLE:
+            print("Optimized ensemble not available")
+            return
+        
+        print("Initializing optimized ensemble system...")
+        
+        try:
+            # Initialize feature extractor
+            self.feature_extractor = UnifiedFeatureExtractor(
+                sequence_length=200,
+                window_sizes=[5, 10, 20, 50, 100],
+                threshold=1.5
+            )
+            
+            # Fit feature extractor if enough data
+            if len(data) >= 200:
+                self.feature_extractor.fit(data)
+                print("✓ Feature extractor fitted")
+            else:
+                print("⚠️  Not enough data to fit feature extractor")
+            
+            # Initialize confidence estimator
+            self.confidence_estimator = SimplifiedConfidenceEstimator(history_window=200)
+            print("✓ Confidence estimator initialized")
+            
+            # Initialize optimized ensemble
+            self.optimized_ensemble = OptimizedEnsemble(
+                models=self.models,
+                threshold=1.5,
+                performance_window=100
+            )
+            print("✓ Optimized ensemble initialized")
+            
+        except Exception as e:
+            print(f"✗ Failed to initialize optimized ensemble: {e}")
+            self.use_optimized_ensemble = False
+
+    def predict_with_optimized_ensemble(self, sequence: List[float]) -> Dict[str, Any]:
+        """
+        Make prediction using optimized ensemble system
+        
+        Args:
+            sequence: Input sequence
+            
+        Returns:
+            Dictionary with enhanced prediction results
+        """
+        if not self.use_optimized_ensemble or self.optimized_ensemble is None:
+            # Fallback to regular ensemble
+            return self.ensemble_predict(sequence)
+        
+        try:
+            # Get prediction from optimized ensemble
+            result = self.optimized_ensemble.predict_next_value(sequence)
+            
+            if result is None:
+                return {
+                    'predictions': {},
+                    'ensemble_prediction': None,
+                    'confidence': 0.0,
+                    'model_count': 0,
+                    'optimized': False
+                }
+            
+            predicted_value, above_prob, confidence = result
+            
+            # Get individual model predictions for confidence estimation
+            model_predictions = {}
+            for model_name, model in self.models.items():
+                try:
+                    pred = self.predict_with_model(model_name, sequence)
+                    if pred is not None:
+                        model_predictions[model_name] = {
+                            'value': pred,
+                            'probability': above_prob,  # Use ensemble probability
+                            'confidence': confidence
+                        }
+                except:
+                    continue
+            
+            # Enhanced confidence estimation
+            if self.confidence_estimator is not None:
+                confidence_analysis = self.confidence_estimator.estimate_confidence(
+                    model_predictions, above_prob
+                )
+                
+                enhanced_confidence = confidence_analysis['confidence_score']
+                confidence_level = confidence_analysis['confidence_level']
+                recommendation = confidence_analysis['recommendation']
+            else:
+                enhanced_confidence = confidence
+                confidence_level = "Medium"
+                recommendation = "Standard confidence"
+            
+            return {
+                'predictions': model_predictions,
+                'ensemble_prediction': predicted_value,
+                'above_threshold_probability': above_prob,
+                'confidence': enhanced_confidence,
+                'confidence_level': confidence_level,
+                'recommendation': recommendation,
+                'model_count': len(model_predictions),
+                'optimized': True,
+                'ensemble_stats': self.optimized_ensemble.get_ensemble_stats() if self.optimized_ensemble else {}
+            }
+            
+        except Exception as e:
+            print(f"Optimized ensemble prediction failed: {e}")
+            # Fallback to regular ensemble
+            return self.ensemble_predict(sequence)
+
+    def update_optimized_ensemble_performance(self, actual_value: float, prediction_id: Optional[str] = None):
+        """
+        Update optimized ensemble performance with actual result
+        
+        Args:
+            actual_value: Actual JetX value
+            prediction_id: Optional prediction ID for tracking
+        """
+        if not self.use_optimized_ensemble:
+            return
+        
+        # Update optimized ensemble performance
+        if self.optimized_ensemble is not None:
+            try:
+                self.optimized_ensemble.update_performance(actual_value, prediction_id)
+            except Exception as e:
+                print(f"Failed to update optimized ensemble performance: {e}")
+        
+        # Update confidence estimator
+        if self.confidence_estimator is not None:
+            try:
+                self.confidence_estimator.add_prediction_result(
+                    prediction=actual_value,
+                    actual_value=actual_value,
+                    model_predictions=None  # Will be added later if needed
+                )
+            except Exception as e:
+                print(f"Failed to update confidence estimator: {e}")
+
+    def get_optimized_ensemble_info(self) -> Dict[str, Any]:
+        """Get optimized ensemble information"""
+        if not self.use_optimized_ensemble:
+            return {
+                'available': False,
+                'reason': 'Optimized ensemble not available'
+            }
+        
+        info = {
+            'available': True,
+            'ensemble_stats': {},
+            'confidence_stats': {},
+            'feature_extractor_info': {}
+        }
+        
+        # Ensemble stats
+        if self.optimized_ensemble is not None:
+            info['ensemble_stats'] = self.optimized_ensemble.get_ensemble_stats()
+            info['model_info'] = self.optimized_ensemble.get_model_info()
+        
+        # Confidence stats
+        if self.confidence_estimator is not None:
+            info['confidence_stats'] = self.confidence_estimator.get_performance_summary()
+        
+        # Feature extractor info
+        if self.feature_extractor is not None:
+            info['feature_extractor_info'] = self.feature_extractor.get_info()
+        
+        return info
+
+    def save_optimized_ensemble(self):
+        """Save optimized ensemble state"""
+        if not self.use_optimized_ensemble:
+            return
+        
+        ensemble_dir = os.path.join(self.models_dir, "ensemble")
+        
+        try:
+            # Save optimized ensemble
+            if self.optimized_ensemble is not None:
+                ensemble_path = os.path.join(ensemble_dir, "optimized_ensemble.pkl")
+                self.optimized_ensemble.save_ensemble_state(ensemble_path)
+                print("✓ Optimized ensemble state saved")
+            
+            # Save confidence estimator
+            if self.confidence_estimator is not None:
+                confidence_path = os.path.join(ensemble_dir, "confidence_estimator.pkl")
+                self.confidence_estimator.save_confidence_state(confidence_path)
+                print("✓ Confidence estimator state saved")
+            
+            # Save feature extractor
+            if self.feature_extractor is not None:
+                extractor_path = os.path.join(ensemble_dir, "feature_extractor.pkl")
+                self.feature_extractor.save_extractor(extractor_path)
+                print("✓ Feature extractor state saved")
+                
+        except Exception as e:
+            print(f"Failed to save optimized ensemble: {e}")
+
+    def load_optimized_ensemble(self):
+        """Load optimized ensemble state"""
+        if not HAS_OPTIMIZED_ENSEMBLE:
+            return False
+        
+        ensemble_dir = os.path.join(self.models_dir, "ensemble")
+        
+        if not os.path.exists(ensemble_dir):
+            return False
+        
+        try:
+            # Load feature extractor
+            extractor_path = os.path.join(ensemble_dir, "feature_extractor.pkl")
+            if os.path.exists(extractor_path):
+                self.feature_extractor = UnifiedFeatureExtractor()
+                if self.feature_extractor.load_extractor(extractor_path):
+                    print("✓ Feature extractor loaded")
+                else:
+                    self.feature_extractor = None
+            
+            # Load confidence estimator
+            confidence_path = os.path.join(ensemble_dir, "confidence_estimator.pkl")
+            if os.path.exists(confidence_path):
+                self.confidence_estimator = SimplifiedConfidenceEstimator()
+                if self.confidence_estimator.load_confidence_state(confidence_path):
+                    print("✓ Confidence estimator loaded")
+                else:
+                    self.confidence_estimator = None
+            
+            # Load optimized ensemble
+            ensemble_path = os.path.join(ensemble_dir, "optimized_ensemble.pkl")
+            if os.path.exists(ensemble_path):
+                self.optimized_ensemble = OptimizedEnsemble(models=self.models)
+                if self.optimized_ensemble.load_ensemble_state(ensemble_path):
+                    print("✓ Optimized ensemble loaded")
+                    self.use_optimized_ensemble = True
+                    return True
+                else:
+                    self.optimized_ensemble = None
+            
+            return False
+            
+        except Exception as e:
+            print(f"Failed to load optimized ensemble: {e}")
+            return False
+
+    def predict_with_ensemble(self, sequence: List[float], use_optimized: bool = True) -> Dict[str, Any]:
+        """
+        Make prediction using best available ensemble method
+        
+        Args:
+            sequence: Input sequence
+            use_optimized: Whether to use optimized ensemble if available
+            
+        Returns:
+            Dictionary with prediction results
+        """
+        if use_optimized and self.use_optimized_ensemble:
+            return self.predict_with_optimized_ensemble(sequence)
+        else:
+            return self.ensemble_predict(sequence)
+
+    def retrain_optimized_ensemble(self, data: List[float]):
+        """Retrain optimized ensemble components"""
+        if not self.use_optimized_ensemble:
+            return
+        
+        print("Retraining optimized ensemble...")
+        
+        try:
+            # Retrain feature extractor
+            if self.feature_extractor is not None and len(data) >= 200:
+                self.feature_extractor.fit(data)
+                print("✓ Feature extractor retrained")
+            
+            # Reset confidence estimator
+            if self.confidence_estimator is not None:
+                self.confidence_estimator.reset_performance()
+                print("✓ Confidence estimator reset")
+            
+            # Reset optimized ensemble
+            if self.optimized_ensemble is not None:
+                self.optimized_ensemble.reset_performance()
+                print("✓ Optimized ensemble reset")
+            
+            print("✓ Optimized ensemble retraining completed")
+            
+        except Exception as e:
+            print(f"Failed to retrain optimized ensemble: {e}")
