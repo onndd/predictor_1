@@ -502,45 +502,31 @@ class JetXNBeatsModel(nn.Module):
             'pattern': pattern_pred
         }
 
-# Backward compatibility
-class NBeatsModel(JetXNBeatsModel):
-    """Backward compatible N-BEATS model"""
-    def __init__(self, input_size: int = 200, forecast_size: int = 1, 
-                 num_stacks: int = 3, num_blocks: int = 3, hidden_size: int = 256,
-                 num_layers: int = 4, basis_functions: List[str] = None):
-        if basis_functions is None:
-            basis_functions = ['trend', 'seasonal', 'linear']
-        super().__init__(input_size, forecast_size, num_stacks, num_blocks, 
-                        hidden_size, num_layers, basis_functions)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Backward compatible forward pass"""
-        result = super().forward(x)
-        return result['value']
-
 class NBeatsPredictor:
     """
     N-BEATS based predictor for JetX time series
     """
-    def __init__(self, sequence_length: int = 200, hidden_size: int = 256, 
-                 num_stacks: int = 3, num_blocks: int = 3, learning_rate: float = 0.001):
+    def __init__(self, sequence_length: int = 200, hidden_size: int = 256,
+                 num_stacks: int = 3, num_blocks: int = 3, learning_rate: float = 0.001,
+                 threshold: float = 1.5, crash_weight: float = 2.0):
         self.sequence_length = sequence_length
         self.hidden_size = hidden_size
         self.num_stacks = num_stacks
         self.num_blocks = num_blocks
         self.learning_rate = learning_rate
         
-        # Initialize model
-        self.model = NBeatsModel(
+        # Initialize the fully-featured JetXNBeatsModel
+        self.model = JetXNBeatsModel(
             input_size=sequence_length,
             forecast_size=1,
             num_stacks=num_stacks,
             num_blocks=num_blocks,
-            hidden_size=hidden_size
+            hidden_size=hidden_size,
+            threshold=threshold
         )
         
-        # Loss function and optimizer
-        self.criterion = nn.MSELoss()
+        # Use the custom JetXThresholdLoss
+        self.criterion = JetXThresholdLoss(threshold=threshold, crash_weight=crash_weight)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         
         # Training state
@@ -607,7 +593,7 @@ class NBeatsPredictor:
                 batch_y = y_train[i:i + batch_size]
                 
                 self.optimizer.zero_grad()
-                predictions = self.model(batch_X).squeeze()
+                predictions = self.model(batch_X) # Returns a dict
                 loss = self.criterion(predictions, batch_y)
                 loss.backward()
                 self.optimizer.step()
@@ -620,7 +606,7 @@ class NBeatsPredictor:
             # Validation
             self.model.eval()
             with torch.no_grad():
-                val_predictions = self.model(X_val).squeeze()
+                val_predictions = self.model(X_val) # Returns a dict
                 val_loss = self.criterion(val_predictions, y_val).item()
             
             train_losses.append(avg_train_loss)
@@ -637,15 +623,15 @@ class NBeatsPredictor:
         
         return self.training_history
     
-    def predict(self, sequence: List[float]) -> float:
+    def predict(self, sequence: List[float]) -> Tuple[float, float, float]:
         """
-        Make a prediction
+        Make a prediction and return value, probability, and confidence.
         
         Args:
             sequence: Input sequence of length sequence_length
             
         Returns:
-            Predicted next value
+            A tuple of (predicted_value, above_threshold_probability, confidence_score)
         """
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
@@ -656,9 +642,13 @@ class NBeatsPredictor:
         self.model.eval()
         with torch.no_grad():
             x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
-            prediction = self.model(x).item()
+            predictions = self.model(x) # Returns a dict
+            
+            value = predictions['value'].item()
+            probability = predictions['probability'].item()
+            confidence = predictions['confidence'].item()
         
-        return prediction
+        return value, probability, confidence
     
     def predict_sequence(self, sequence: List[float], steps: int = 1) -> List[float]:
         """

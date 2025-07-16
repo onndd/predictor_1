@@ -12,6 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import new deep learning models
+DEEP_MODELS_ERROR = None
 try:
     from .deep_learning.n_beats.n_beats_model import NBeatsPredictor
     from .deep_learning.tft.tft_model import TFTPredictor
@@ -20,17 +21,20 @@ try:
     from .deep_learning.pathformer.pathformer_model import PathformerPredictor
     HAS_DEEP_MODELS = True
 except ImportError as e:
-    print(f"Warning: Deep learning models not available: {e}")
+    DEEP_MODELS_ERROR = f"Deep learning models not available: {e}"
+    print(f"Warning: {DEEP_MODELS_ERROR}")
     HAS_DEEP_MODELS = False
 
 # Import existing models
+EXISTING_MODELS_ERROR = None
 try:
     from .enhanced_light_models import create_enhanced_light_models, LightModelEnsemble
     from .hybrid_predictor import HybridPredictor
     from .crash_detector import CrashDetector
     HAS_EXISTING_MODELS = True
 except ImportError as e:
-    print(f"Warning: Existing models not available: {e}")
+    EXISTING_MODELS_ERROR = f"Existing models not available: {e}"
+    print(f"Warning: {EXISTING_MODELS_ERROR}")
     HAS_EXISTING_MODELS = False
 
 # Import optimized ensemble system
@@ -77,6 +81,8 @@ class AdvancedModelManager:
         # Training state
         self.is_initialized = False
         self.auto_train_heavy_models = False  # Default: manual training
+        self.dependency_error = DEEP_MODELS_ERROR
+        self.light_model_dependency_error = EXISTING_MODELS_ERROR
         
         # Optimized ensemble system
         self.optimized_ensemble = None
@@ -267,18 +273,21 @@ class AdvancedModelManager:
     
     def create_model_instance(self, model_name: str, config: Dict) -> Any:
         """Create a model instance based on name and config"""
-        if model_name == 'n_beats':
-            return NBeatsPredictor(**config)
-        elif model_name == 'tft':
-            return TFTPredictor(**config)
-        elif model_name == 'informer':
-            return InformerPredictor(**config)
-        elif model_name == 'autoformer':
-            return AutoformerPredictor(**config)
-        elif model_name == 'pathformer':
-            return PathformerPredictor(**config)
-        else:
+        model_class_map = {
+            'n_beats': NBeatsPredictor,
+            'tft': TFTPredictor,
+            'informer': InformerPredictor,
+            'autoformer': AutoformerPredictor,
+            'pathformer': PathformerPredictor
+        }
+        
+        if model_name not in model_class_map:
             raise ValueError(f"Unknown model: {model_name}")
+            
+        # Filter out keys that are not part of the model's __init__
+        model_specific_config = {k: v for k, v in config.items() if k != 'is_heavy'}
+        
+        return model_class_map[model_name](**model_specific_config)
     
     def train_heavy_model(self, model_name: str, data: List[float], epochs: int = 100) -> Dict:
         """
@@ -306,6 +315,11 @@ class AdvancedModelManager:
         
         # Create and train model
         model = self.create_model_instance(model_name, config)
+        
+        # Make sure model is created before training
+        if model is None:
+            raise ValueError(f"Failed to create model instance for {model_name}")
+
         history = model.train(data, epochs=epochs, verbose=True)
         
         # Save model
@@ -1111,3 +1125,13 @@ class AdvancedModelManager:
         except Exception as e:
             print(f"Knowledge load hatası: {e}")
             return False
+
+    def get_dependency_error(self) -> Optional[str]:
+        """Returns the dependency error message if any"""
+        errors = []
+        if self.dependency_error:
+            errors.append(self.dependency_error)
+        if self.light_model_dependency_error:
+            errors.append(self.light_model_dependency_error)
+        
+        return "\n".join(errors) if errors else None

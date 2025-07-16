@@ -168,6 +168,18 @@ def main():
     # Header
     st.markdown('<p class="big-font">Enhanced JetX Prediction System</p>', unsafe_allow_html=True)
     st.markdown("---")
+
+    # Check for dependency errors and display them prominently
+    dependency_error = app.model_manager.get_dependency_error()
+    if dependency_error:
+        st.error(f"""
+        **Kritik Bağımlılık Hatası:** Derin öğrenme modelleri yüklenemedi.
+        Sistem sınırlı modda çalışacaktır. Lütfen aşağıdaki hatayı düzeltin:
+        
+        `{dependency_error}`
+        
+        **Çözüm Önerisi:** `pip install -r requirements_enhanced.txt` komutunu çalıştırın.
+        """)
     
     # Sidebar for controls
     with st.sidebar:
