@@ -67,45 +67,124 @@ class FeatureExtractor:
         return np.array(features)
     
     def _extract_hidden_features(self, model, sequence):
-        """Neural network'ten hidden features çıkar"""
+        """Neural network'ten hidden features çıkar - Robust implementation"""
         try:
+            # Sequence'i normalize et
+            sequence = self._normalize_sequence(sequence)
+            
             # Sequence'i model input formatına çevir
             if len(sequence) < self.seq_length:
                 padding = [sequence[0]] * (self.seq_length - len(sequence))
                 sequence = padding + list(sequence)
             
             sequence = sequence[-self.seq_length:]
-            X = np.array(sequence).reshape(1, self.seq_length, 1)
             
-            # Hidden layer outputs al
-            if hasattr(model.model, 'layers'):
-                # LSTM/GRU'dan hidden state
-                for layer in model.model.layers:
-                    if 'lstm' in layer.name.lower() or 'gru' in layer.name.lower():
-                        # Intermediate model oluştur
-                        intermediate_model = tf.keras.Model(
-                            inputs=model.model.input,
-                            outputs=layer.output
-                        )
-                        hidden_output = intermediate_model.predict(X, verbose=0)
-                        
-                        # Hidden state'ten özellikler çıkar
-                        if len(hidden_output.shape) == 3:  # (batch, seq, features)
-                            # Son time step'i al
-                            features = hidden_output[0, -1, :]
-                        else:  # (batch, features)
-                            features = hidden_output[0, :]
-                            
-                        # İlk 10 özelliği al (performans için)
-                        return features[:10].tolist()
-                        
-            # Fallback: model prediction
-            _, prob = model.predict_next(sequence)
-            return [prob if prob is not None else 0.5, 0.0, 0.0]
+            # Model type'a göre feature extraction
+            if hasattr(model, 'model') and model.model is not None:
+                # TensorFlow models
+                if hasattr(model.model, 'layers'):
+                    return self._extract_from_tf_model(model, sequence)
+                # PyTorch models
+                elif hasattr(model, 'predict'):
+                    return self._extract_from_torch_model(model, sequence)
+            
+            # Fallback: Use model's predict method
+            if hasattr(model, 'predict_next_value'):
+                result = model.predict_next_value(sequence)
+                if isinstance(result, tuple) and len(result) >= 2:
+                    _, prob, confidence = result if len(result) == 3 else (*result, 0.5)
+                    return [prob, confidence, np.mean(sequence[-5:]), np.std(sequence[-5:])]
+                else:
+                    return [0.5, 0.0, np.mean(sequence[-5:]), np.std(sequence[-5:])]
+            
+            # Final fallback
+            return [0.5, 0.0, np.mean(sequence[-5:]), np.std(sequence[-5:])]
             
         except Exception as e:
             print(f"Hidden feature extraction error: {e}")
-            return [0.5, 0.0, 0.0]
+            return [0.5, 0.0, np.mean(sequence[-5:]) if sequence else 1.5, 0.0]
+    
+    def _extract_from_tf_model(self, model, sequence):
+        """TensorFlow modelinden feature çıkar"""
+        try:
+            X = np.array(sequence).reshape(1, self.seq_length, 1)
+            
+            # Model prediction
+            if hasattr(model, 'predict_next'):
+                _, prob = model.predict_next(sequence)
+                prob = prob if prob is not None else 0.5
+            else:
+                prob = 0.5
+            
+            # Hidden layer features
+            hidden_features = []
+            
+            # Try to get intermediate outputs
+            try:
+                for i, layer in enumerate(model.model.layers):
+                    if any(layer_type in layer.name.lower() for layer_type in ['lstm', 'gru', 'dense']):
+                        if i < len(model.model.layers) - 1:  # Not output layer
+                            intermediate_model = tf.keras.Model(
+                                inputs=model.model.input,
+                                outputs=layer.output
+                            )
+                            hidden_output = intermediate_model.predict(X, verbose=0)
+                            
+                            # Extract features from hidden output
+                            if len(hidden_output.shape) == 3:  # (batch, seq, features)
+                                features = hidden_output[0, -1, :]  # Last timestep
+                            else:  # (batch, features)
+                                features = hidden_output[0, :]
+                            
+                            # Take first few features
+                            hidden_features.extend(features[:3].tolist())
+                            
+                            if len(hidden_features) >= 6:  # Limit features
+                                break
+            except Exception as e:
+                print(f"Intermediate layer extraction failed: {e}")
+            
+            # Combine features
+            features = [prob] + hidden_features[:6]
+            
+            # Pad to consistent length
+            while len(features) < 8:
+                features.append(0.0)
+            
+            return features[:8]
+            
+        except Exception as e:
+            print(f"TF model feature extraction error: {e}")
+            return [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    
+    def _extract_from_torch_model(self, model, sequence):
+        """PyTorch modelinden feature çıkar"""
+        try:
+            # Model prediction
+            if hasattr(model, 'predict'):
+                pred = model.predict(sequence)
+                prob = pred if pred is not None else 0.5
+            else:
+                prob = 0.5
+            
+            # Statistical features from sequence
+            seq_arr = np.array(sequence)
+            features = [
+                prob,
+                np.mean(seq_arr[-10:]),
+                np.std(seq_arr[-10:]),
+                np.max(seq_arr[-10:]),
+                np.min(seq_arr[-10:]),
+                np.mean(seq_arr[-5:]),
+                len(seq_arr[seq_arr >= 1.5]) / len(seq_arr),
+                len(seq_arr[seq_arr >= 2.0]) / len(seq_arr)
+            ]
+            
+            return features
+            
+        except Exception as e:
+            print(f"PyTorch model feature extraction error: {e}")
+            return [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     
     def _extract_statistical_features(self, sequence):
         """İstatistiksel özellikler çıkar"""

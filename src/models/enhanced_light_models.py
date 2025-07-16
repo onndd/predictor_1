@@ -12,12 +12,119 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 import warnings
+import pickle
+import os
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
 
 warnings.filterwarnings('ignore')
+
+class HeavyModelKnowledge:
+    """
+    Heavy modellerden çıkarılan bilgi sınıfı
+    """
+    
+    def __init__(self):
+        self.pattern_weights = {}
+        self.feature_importance = {}
+        self.decision_boundaries = {}
+        self.performance_metrics = {}
+        self.extracted_patterns = {}
+        self.threshold_adjustments = {}
+        self.confidence_calibration = {}
+        self.creation_time = datetime.now()
+        
+    def add_pattern_weight(self, pattern_name: str, weight: float):
+        """Pattern ağırlığı ekle"""
+        self.pattern_weights[pattern_name] = weight
+        
+    def add_feature_importance(self, feature_name: str, importance: float):
+        """Feature importance ekle"""
+        self.feature_importance[feature_name] = importance
+        
+    def add_decision_boundary(self, feature_range: Tuple[float, float], decision: str):
+        """Karar sınırı ekle"""
+        self.decision_boundaries[feature_range] = decision
+        
+    def add_extracted_pattern(self, pattern_type: str, pattern_data: Dict):
+        """Çıkarılan pattern ekle"""
+        self.extracted_patterns[pattern_type] = pattern_data
+        
+    def add_threshold_adjustment(self, condition: str, adjustment: float):
+        """Threshold ayarlama ekle"""
+        self.threshold_adjustments[condition] = adjustment
+        
+    def get_pattern_weight(self, pattern_name: str) -> float:
+        """Pattern ağırlığını al"""
+        return self.pattern_weights.get(pattern_name, 1.0)
+        
+    def get_feature_importance(self, feature_name: str) -> float:
+        """Feature importance al"""
+        return self.feature_importance.get(feature_name, 1.0)
+        
+    def get_threshold_adjustment(self, sequence: List[float]) -> float:
+        """Sequence için threshold ayarlama öner"""
+        # Basit örnek - gerçek implementasyon daha karmaşık olacak
+        recent_avg = np.mean(sequence[-10:])
+        
+        for condition, adjustment in self.threshold_adjustments.items():
+            if condition == "high_volatility" and np.std(sequence[-10:]) > 0.5:
+                return adjustment
+            elif condition == "low_values" and recent_avg < 1.3:
+                return adjustment
+            elif condition == "high_values" and recent_avg > 2.0:
+                return adjustment
+                
+        return 0.0
+        
+    def get_confidence_boost(self, prediction_prob: float) -> float:
+        """Prediction confidence boost hesapla"""
+        # Heavy model bilgisine dayalı confidence artışı
+        if prediction_prob > 0.7:
+            return 0.15  # Yüksek confidence'a daha fazla boost
+        elif prediction_prob > 0.6:
+            return 0.10
+        elif prediction_prob > 0.4:
+            return 0.05
+        else:
+            return 0.0
+            
+    def save_knowledge(self, filepath: str):
+        """Bilgiyi dosyaya kaydet"""
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+            
+    @classmethod
+    def load_knowledge(cls, filepath: str) -> Optional['HeavyModelKnowledge']:
+        """Dosyadan bilgi yükle"""
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                print(f"Error loading knowledge: {e}")
+        return None
+        
+    def is_valid(self) -> bool:
+        """Bilgi geçerli mi kontrol et"""
+        return len(self.pattern_weights) > 0 or len(self.feature_importance) > 0
+        
+    def get_summary(self) -> Dict[str, Any]:
+        """Bilgi özeti"""
+        return {
+            'pattern_weights_count': len(self.pattern_weights),
+            'feature_importance_count': len(self.feature_importance),
+            'decision_boundaries_count': len(self.decision_boundaries),
+            'extracted_patterns_count': len(self.extracted_patterns),
+            'threshold_adjustments_count': len(self.threshold_adjustments),
+            'creation_time': self.creation_time,
+            'age_hours': (datetime.now() - self.creation_time).total_seconds() / 3600
+        }
 
 class EnhancedRandomForest:
     """
     Gelişmiş Random Forest - JetX için optimize edilmiş
+    Heavy model knowledge ile güçlendirilmiş
     """
     
     def __init__(self, threshold=1.5, n_estimators=300, max_depth=20):
@@ -27,6 +134,17 @@ class EnhancedRandomForest:
         self.model = None
         self.scaler = StandardScaler()
         self.is_fitted = False
+        self.heavy_knowledge = None
+        self.knowledge_boost_enabled = False
+        
+    def update_with_heavy_knowledge(self, knowledge: HeavyModelKnowledge):
+        """Heavy model bilgisini güncelle"""
+        if knowledge and knowledge.is_valid():
+            self.heavy_knowledge = knowledge
+            self.knowledge_boost_enabled = True
+            print("✅ Random Forest heavy model bilgisi ile güçlendirildi")
+        else:
+            print("⚠️ Geçersiz heavy model bilgisi")
         
     def _extract_features(self, sequence):
         """Sequence'den gelişmiş özellikler çıkar"""
@@ -143,7 +261,7 @@ class EnhancedRandomForest:
         return self
     
     def predict_next_value(self, sequence):
-        """Tahmin yap"""
+        """Heavy model bilgisi ile güçlendirilmiş tahmin"""
         if not self.is_fitted:
             return None, 0.5, 0.0
         
@@ -152,14 +270,66 @@ class EnhancedRandomForest:
             X = np.array(features).reshape(1, -1)
             X_scaled = self.scaler.transform(X)
             
-            # Probability prediction
+            # Base probability prediction
             prob = self.model.predict_proba(X_scaled)[0][1]
             
-            # Confidence (feature importance based)
-            confidence = min(1.0, max(0.0, abs(prob - 0.5) * 2))
-            
-            # Predicted value estimate
-            predicted_value = np.mean(sequence[-10:]) * (1.2 if prob > 0.5 else 0.8)
+            # Heavy model knowledge ile güçlendirme
+            if self.knowledge_boost_enabled and self.heavy_knowledge:
+                # Threshold adjustment
+                threshold_adjustment = self.heavy_knowledge.get_threshold_adjustment(sequence)
+                adjusted_threshold = self.threshold + threshold_adjustment
+                
+                # Pattern-based probability adjustment
+                pattern_boost = 0.0
+                recent_avg = np.mean(sequence[-10:])
+                recent_std = np.std(sequence[-10:])
+                
+                # High volatility pattern
+                if recent_std > 0.5:
+                    pattern_boost += self.heavy_knowledge.get_pattern_weight("high_volatility") * 0.05
+                
+                # Low values pattern
+                if recent_avg < 1.3:
+                    pattern_boost += self.heavy_knowledge.get_pattern_weight("low_values") * 0.08
+                
+                # High values pattern
+                if recent_avg > 2.0:
+                    pattern_boost += self.heavy_knowledge.get_pattern_weight("high_values") * 0.06
+                
+                # Consecutive pattern detection
+                consecutive_count = 0
+                for i in range(min(5, len(sequence))):
+                    if sequence[-(i+1)] >= self.threshold:
+                        consecutive_count += 1
+                    else:
+                        break
+                
+                if consecutive_count >= 3:
+                    pattern_boost -= 0.1  # Crash likelihood after consecutive highs
+                
+                # Apply pattern boost
+                prob = max(0.0, min(1.0, prob + pattern_boost))
+                
+                # Confidence boost from heavy model
+                confidence_boost = self.heavy_knowledge.get_confidence_boost(prob)
+                base_confidence = abs(prob - 0.5) * 2
+                confidence = min(1.0, base_confidence + confidence_boost)
+                
+                # Value prediction with heavy model insights
+                base_value = np.mean(sequence[-10:])
+                if prob > 0.6:
+                    # High confidence above threshold
+                    value_multiplier = 1.3 + (prob - 0.6) * 0.5
+                else:
+                    # Lower confidence or below threshold
+                    value_multiplier = 0.7 + prob * 0.6
+                
+                predicted_value = base_value * value_multiplier
+                
+            else:
+                # Standard prediction without heavy model knowledge
+                confidence = min(1.0, max(0.0, abs(prob - 0.5) * 2))
+                predicted_value = np.mean(sequence[-10:]) * (1.2 if prob > 0.5 else 0.8)
             
             return predicted_value, prob, confidence
             
@@ -338,7 +508,7 @@ class LightModelEnsemble:
         print("Light Model Ensemble eğitimi tamamlandı!")
         
     def predict_next_value(self, sequence):
-        """Ensemble tahmin"""
+        """Heavy model bilgisi ile güçlendirilmiş ensemble tahmin"""
         if not self.is_fitted:
             return None, 0.5, 0.0
         
@@ -346,12 +516,19 @@ class LightModelEnsemble:
         confidences = []
         values = []
         total_weight = 0
+        knowledge_boost_count = 0
         
         for name, model in self.models.items():
             try:
                 val, prob, conf = model.predict_next_value(sequence)
                 if prob is not None:
                     weight = self.model_weights[name]
+                    
+                    # Heavy model bilgisi olan modellere extra weight
+                    if hasattr(model, 'knowledge_boost_enabled') and model.knowledge_boost_enabled:
+                        weight *= 1.2  # %20 extra weight
+                        knowledge_boost_count += 1
+                    
                     predictions.append(prob * weight)
                     confidences.append(conf * weight)
                     if val is not None:
@@ -367,6 +544,21 @@ class LightModelEnsemble:
         avg_prob = sum(predictions) / total_weight
         avg_confidence = sum(confidences) / total_weight if confidences else 0.0
         avg_value = sum(values) / len(values) if values else np.mean(sequence[-5:])
+        
+        # Ensemble-level heavy model knowledge boost
+        if self.knowledge_boost_enabled and self.heavy_knowledge:
+            # Global confidence boost
+            ensemble_confidence_boost = self.heavy_knowledge.get_confidence_boost(avg_prob)
+            avg_confidence = min(1.0, avg_confidence + ensemble_confidence_boost * 0.5)
+            
+            # Ensemble-level pattern adjustment
+            recent_avg = np.mean(sequence[-10:])
+            if recent_avg > 2.0 and avg_prob > 0.7:
+                # High values with high confidence - slight reduction for safety
+                avg_prob = max(0.5, avg_prob - 0.05)
+            elif recent_avg < 1.3 and avg_prob < 0.3:
+                # Low values with low confidence - slight increase
+                avg_prob = min(0.5, avg_prob + 0.05)
         
         return avg_value, avg_prob, avg_confidence
 

@@ -103,6 +103,20 @@ class EnhancedJetXApp:
         
         return result
     
+    def make_optimized_prediction(self, sequence_length=200):
+        """Make prediction using optimized ensemble"""
+        if len(self.current_data) < sequence_length:
+            st.warning(f"Need at least {sequence_length} data points for prediction")
+            return None
+        
+        # Get recent sequence
+        recent_sequence = self.current_data[-sequence_length:]
+        
+        # Make optimized ensemble prediction
+        result = self.model_manager.predict_with_optimized_ensemble(recent_sequence)
+        
+        return result
+    
     def train_heavy_model(self, model_name, epochs=100):
         """Train a specific heavy model"""
         if len(self.current_data) < 500:
