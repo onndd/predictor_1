@@ -8,6 +8,7 @@ from IPython.display import display, clear_output
 from datetime import datetime
 import json
 import os
+import traceback  # Hata ayıklama için eklendi
 
 # Rolling Window Training System Integration
 class RealJetXTrainingInterface:
@@ -170,7 +171,6 @@ class RealJetXTrainingInterface:
         except Exception as e:
             with self.output_area:
                 print(f"❌ Rolling training hatası: {e}")
-                import traceback
                 traceback.print_exc()
         finally:
             self.train_button.disabled = False
@@ -350,6 +350,7 @@ def download_trained_models():
         
     except Exception as e:
         print(f"❌ Download error: {e}")
+        traceback.print_exc()  # Detaylı hata kaydı
 
 
 def create_download_interface():
@@ -416,6 +417,7 @@ def analyze_training_results():
     
     except Exception as e:
         print(f"❌ Analysis error: {e}")
+        traceback.print_exc()  # Detaylı hata kaydı
 
 
 print("✅ Rolling Window Training Integration hazır!")

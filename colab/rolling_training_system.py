@@ -11,6 +11,7 @@ from datetime import datetime
 import os
 import json
 import pickle
+import traceback  # Hata ayıklama için eklendi
 from tqdm.notebook import tqdm
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
@@ -71,6 +72,7 @@ class RollingWindowTrainer:
             
         except Exception as e:
             print(f"❌ N-Beats training error: {e}")
+            traceback.print_exc()  # Detaylı hata kaydı
             return None, None
     
     def train_tft_model(self, train_data, config, progress_callback=None):
@@ -101,6 +103,7 @@ class RollingWindowTrainer:
             
         except Exception as e:
             print(f"❌ TFT training error: {e}")
+            traceback.print_exc()  # Detaylı hata kaydı
             return None, None
     
     def train_lstm_model(self, train_data, config, progress_callback=None):
@@ -130,6 +133,7 @@ class RollingWindowTrainer:
             
         except Exception as e:
             print(f"❌ LSTM training error: {e}")
+            traceback.print_exc()  # Detaylı hata kaydı
             return None, None
     
     def test_model(self, model, test_data, sequence_length):
@@ -182,6 +186,7 @@ class RollingWindowTrainer:
             
         except Exception as e:
             print(f"❌ Model test error: {e}")
+            traceback.print_exc()  # Detaylı hata kaydı
             return None
     
     def save_model(self, model, model_name, config, performance):
@@ -207,6 +212,7 @@ class RollingWindowTrainer:
             
         except Exception as e:
             print(f"❌ Model save error: {e}")
+            traceback.print_exc()  # Detaylı hata kaydı
             return None, None
     
     def execute_rolling_training(self, model_type, config, progress_callback=None):
