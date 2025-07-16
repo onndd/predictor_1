@@ -1,7 +1,13 @@
 import numpy as np
 from collections import defaultdict
 from scipy.spatial.distance import euclidean
-from fastdtw import fastdtw
+
+try:
+    from fastdtw import fastdtw
+    FASTDTW_AVAILABLE = True
+except ImportError:
+    FASTDTW_AVAILABLE = False
+    print("Warning: fastdtw not available. Using basic DTW implementation.")
 
 class DTWModel:
     def __init__(self, window_size=10, max_neighbors=5, threshold=1.5, max_distance=0.5):
@@ -42,6 +48,35 @@ class DTWModel:
             self.sequences.append(seq)
             self.next_values.append(next_val)
     
+    def _basic_dtw_distance(self, seq1, seq2):
+        """
+        Basic DTW distance implementation as fallback
+        
+        Args:
+            seq1: First sequence
+            seq2: Second sequence
+            
+        Returns:
+            DTW distance
+        """
+        n, m = len(seq1), len(seq2)
+        
+        # Initialize DTW matrix
+        dtw_matrix = np.full((n + 1, m + 1), float('inf'))
+        dtw_matrix[0, 0] = 0
+        
+        # Fill the matrix
+        for i in range(1, n + 1):
+            for j in range(1, m + 1):
+                cost = abs(seq1[i-1] - seq2[j-1])
+                dtw_matrix[i, j] = cost + min(
+                    dtw_matrix[i-1, j],      # insertion
+                    dtw_matrix[i, j-1],      # deletion
+                    dtw_matrix[i-1, j-1]     # match
+                )
+        
+        return dtw_matrix[n, m]
+    
     def _get_nearest_sequences(self, query_sequence, top_n=None):
         """
         En yakın dizileri bulur
@@ -63,14 +98,26 @@ class DTWModel:
         distances = []
         
         for i, seq in enumerate(self.sequences):
-            # FastDTW mesafesini hesapla
-            distance, _ = fastdtw(query_sequence, seq, dist=euclidean)
-            
-            # Normalize et
-            distance /= len(query_sequence)
-            
-            if distance <= self.max_distance:
-                distances.append((distance, i, self.next_values[i]))
+            try:
+                if FASTDTW_AVAILABLE:
+                    # FastDTW mesafesini hesapla
+                    distance, _ = fastdtw(query_sequence, seq, dist=euclidean)
+                else:
+                    # Basic DTW implementation
+                    distance = self._basic_dtw_distance(query_sequence, seq)
+                
+                # Normalize et - sequence length'e göre
+                distance /= max(len(query_sequence), len(seq))
+                
+                if distance <= self.max_distance:
+                    distances.append((distance, i, self.next_values[i]))
+            except Exception as e:
+                # Hata durumunda euclidean distance kullan
+                if len(query_sequence) == len(seq):
+                    distance = euclidean(query_sequence, seq)
+                    distance /= len(query_sequence)
+                    if distance <= self.max_distance:
+                        distances.append((distance, i, self.next_values[i]))
         
         # Mesafeye göre sırala
         distances.sort(key=lambda x: x[0])

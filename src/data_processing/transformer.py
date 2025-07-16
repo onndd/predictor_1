@@ -1,7 +1,6 @@
 # transformer.py DOSYASININ TAM VE GÜNCEL İÇERİĞİ
 
 import numpy as np
-import pandas as pd
 
 # Kategori tanımları
 VALUE_CATEGORIES = {

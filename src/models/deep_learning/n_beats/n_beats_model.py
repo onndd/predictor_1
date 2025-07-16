@@ -78,9 +78,10 @@ class NBeatsBlock(nn.Module):
         """
         theta = self.layers(x)
         
-        # Create time indices
-        backcast_indices = torch.arange(self.input_size, dtype=torch.float32) / self.input_size
-        forecast_indices = torch.arange(self.input_size, 2 * self.input_size, dtype=torch.float32) / self.input_size
+        # Create time indices on the same device as input
+        device = x.device
+        backcast_indices = torch.arange(self.input_size, dtype=torch.float32, device=device) / self.input_size
+        forecast_indices = torch.arange(self.input_size, 2 * self.input_size, dtype=torch.float32, device=device) / self.input_size
         
         # Generate backcast and forecast
         backcast = self.basis(theta, backcast_indices)
@@ -200,9 +201,10 @@ class JetXNBeatsBlock(nn.Module):
         """
         theta = self.layers(x)
         
-        # Create time indices
-        backcast_indices = torch.arange(self.input_size, dtype=torch.float32) / self.input_size
-        forecast_indices = torch.arange(self.input_size, 2 * self.input_size, dtype=torch.float32) / self.input_size
+        # Create time indices on the same device as input
+        device = x.device
+        backcast_indices = torch.arange(self.input_size, dtype=torch.float32, device=device) / self.input_size
+        forecast_indices = torch.arange(self.input_size, 2 * self.input_size, dtype=torch.float32, device=device) / self.input_size
         
         # Generate backcast and forecast
         backcast = self.basis(theta, backcast_indices)
@@ -369,10 +371,10 @@ class JetXPatternDetector:
         
         # Look for high values followed by rapid decline
         recent = sequence[-5:]
-        max_val = np.max(recent)
-        min_val = np.min(recent)
+        max_val = float(np.max(recent))
+        min_val = float(np.min(recent))
         
-        if max_val > 2.0 and min_val < self.threshold:
+        if max_val > 2.0 and min_val < float(self.threshold):
             crash_magnitude = max_val - min_val
             return min(1.0, crash_magnitude / 3.0)
         
@@ -417,7 +419,7 @@ class JetXPatternDetector:
             return 0.0
         
         returns = np.diff(sequence) / sequence[:-1]
-        return np.std(returns)
+        return float(np.std(returns))
 
 class JetXNBeatsModel(nn.Module):
     """
@@ -425,7 +427,7 @@ class JetXNBeatsModel(nn.Module):
     """
     def __init__(self, input_size: int = 200, forecast_size: int = 1, 
                  num_stacks: int = 3, num_blocks: int = 3, hidden_size: int = 256,
-                 num_layers: int = 4, basis_functions: List[str] = None, threshold: float = 1.5):
+                 num_layers: int = 4, basis_functions: Optional[List[str]] = None, threshold: float = 1.5):
         super(JetXNBeatsModel, self).__init__()
         
         self.input_size = input_size
@@ -642,13 +644,30 @@ class NBeatsPredictor:
         self.model.eval()
         with torch.no_grad():
             x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
+            
+            # Ensure tensor is on the same device as model
+            if next(self.model.parameters()).is_cuda:
+                x = x.cuda()
+            
             predictions = self.model(x) # Returns a dict
             
-            value = predictions['value'].item()
-            probability = predictions['probability'].item()
-            confidence = predictions['confidence'].item()
+            value = predictions['value'].squeeze().item()
+            probability = predictions['probability'].squeeze().item()
+            confidence = predictions['confidence'].squeeze().item()
         
         return value, probability, confidence
+    
+    def predict_next_value(self, sequence: List[float]) -> Tuple[float, float, float]:
+        """
+        Compatibility method for ensemble systems
+        
+        Args:
+            sequence: Input sequence
+            
+        Returns:
+            tuple: (predicted_value, above_threshold_probability, confidence)
+        """
+        return self.predict(sequence)
     
     def predict_sequence(self, sequence: List[float], steps: int = 1) -> List[float]:
         """

@@ -64,7 +64,8 @@ class JetXLSTMFeatureExtractor:
         result = np.zeros_like(sequence)
         for i in range(len(sequence)):
             start = max(0, i - window + 1)
-            result[i] = np.mean(sequence[start:i+1])
+            end = min(len(sequence), i + 1)
+            result[i] = np.mean(sequence[start:end])
         return result
     
     def _calculate_momentum(self, sequence: np.ndarray) -> np.ndarray:
