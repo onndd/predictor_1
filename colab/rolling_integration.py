@@ -1,0 +1,424 @@
+"""
+Rolling Window Training Integration for Colab Notebook
+"""
+
+import numpy as np
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+from datetime import datetime
+import json
+import os
+
+# Rolling Window Training System Integration
+class RealJetXTrainingInterface:
+    """
+    Gerçek rolling window training ile JetX model eğitimi
+    """
+    
+    def __init__(self, model_registry, rolling_chunks):
+        self.model_registry = model_registry
+        self.rolling_chunks = rolling_chunks
+        self.current_training = None
+        self.rolling_trainer = None
+        self.setup_widgets()
+        
+    def setup_widgets(self):
+        """Widget'ları kurulum"""
+        
+        # Model seçimi
+        self.model_selector = widgets.Dropdown(
+            options=['N-Beats', 'TFT', 'LSTM'],
+            value='N-Beats',
+            description='Model:',
+            style={'description_width': 'initial'}
+        )
+        
+        # Rolling Window parametreleri
+        self.chunk_size = widgets.IntSlider(
+            value=1000, min=500, max=2000, step=100,
+            description='Chunk Size:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.sequence_length = widgets.IntSlider(
+            value=200, min=100, max=300, step=20,
+            description='Sequence Length:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.epochs_per_cycle = widgets.IntSlider(
+            value=30, min=10, max=100, step=10,
+            description='Epochs per Cycle:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.batch_size = widgets.Dropdown(
+            options=[16, 32, 64, 128],
+            value=32,
+            description='Batch Size:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.learning_rate = widgets.FloatLogSlider(
+            value=0.001, base=10, min=-5, max=-1,
+            description='Learning Rate:',
+            style={'description_width': 'initial'}
+        )
+        
+        # Eğitim kontrol butonları
+        self.train_button = widgets.Button(
+            description='🚀 Rolling Training Başlat',
+            button_style='success',
+            layout=widgets.Layout(width='250px')
+        )
+        
+        self.stop_button = widgets.Button(
+            description='⏹️ Durdur',
+            button_style='danger',
+            layout=widgets.Layout(width='200px'),
+            disabled=True
+        )
+        
+        # Progress bar
+        self.progress = widgets.IntProgress(
+            value=0, min=0, max=100,
+            description='Progress:',
+            bar_style='info',
+            layout=widgets.Layout(width='500px')
+        )
+        
+        # Cycle info
+        self.cycle_info = widgets.HTML(
+            value="Rolling window training henüz başlamadı."
+        )
+        
+        # Output alanları
+        self.output_area = widgets.Output()
+        self.model_info_area = widgets.Output()
+        
+        # Event handler'lar
+        self.train_button.on_click(self.on_train_click)
+        self.stop_button.on_click(self.on_stop_click)
+        
+    def on_train_click(self, button):
+        """Eğitim butonuna tıklandığında"""
+        self.start_rolling_training()
+    
+    def on_stop_click(self, button):
+        """Durdur butonuna tıklandığında"""
+        self.stop_training()
+    
+    def start_rolling_training(self):
+        """Rolling window training'i başlat"""
+        self.train_button.disabled = True
+        self.stop_button.disabled = False
+        self.progress.value = 0
+        self.current_training = True
+        
+        # Eğitim parametrelerini al
+        config = {
+            'model_type': self.model_selector.value,
+            'sequence_length': self.sequence_length.value,
+            'epochs': self.epochs_per_cycle.value,
+            'batch_size': self.batch_size.value,
+            'learning_rate': self.learning_rate.value,
+            'chunk_size': self.chunk_size.value
+        }
+        
+        with self.output_area:
+            clear_output()
+            print(f"🚀 Rolling Window Training başlatılıyor: {config['model_type']}")
+            print(f"📊 Chunk sayısı: {len(self.rolling_chunks)}")
+            print(f"📊 Chunk boyutu: {config['chunk_size']}")
+            print(f"📊 Sequence length: {config['sequence_length']}")
+            print(f"📊 Epochs per cycle: {config['epochs']}")
+            print("=" * 50)
+            
+            # Rolling trainer'ı başlat
+            self.execute_rolling_training(config)
+    
+    def execute_rolling_training(self, config):
+        """Rolling training'i yürüt"""
+        try:
+            # Import rolling training system
+            from rolling_training_system import RollingWindowTrainer
+            
+            # Create trainer
+            self.rolling_trainer = RollingWindowTrainer(
+                chunks=self.rolling_chunks,
+                chunk_size=config['chunk_size'],
+                sequence_length=config['sequence_length']
+            )
+            
+            # Progress callback
+            def progress_callback(current_cycle, total_cycles, message):
+                if self.current_training:
+                    progress_percent = int((current_cycle / total_cycles) * 100)
+                    self.progress.value = progress_percent
+                    self.cycle_info.value = f"Cycle {current_cycle}/{total_cycles}: {message}"
+            
+            # Execute training
+            results = self.rolling_trainer.execute_rolling_training(
+                model_type=config['model_type'],
+                config=config,
+                progress_callback=progress_callback
+            )
+            
+            # Process results
+            self.process_training_results(results, config)
+            
+        except Exception as e:
+            with self.output_area:
+                print(f"❌ Rolling training hatası: {e}")
+                import traceback
+                traceback.print_exc()
+        finally:
+            self.train_button.disabled = False
+            self.stop_button.disabled = True
+            self.current_training = None
+    
+    def process_training_results(self, results, config):
+        """Eğitim sonuçlarını işle"""
+        if not results:
+            with self.output_area:
+                print("❌ Eğitim sonuçları alınamadı!")
+            return
+        
+        with self.output_area:
+            print(f"\n🎉 Rolling Window Training tamamlandı!")
+            print(f"📊 Toplam cycle sayısı: {len(results)}")
+            print(f"🏆 En iyi performans analizi:")
+            
+            # En iyi cycle'ı bul
+            best_cycle = None
+            best_mae = float('inf')
+            
+            for result in results:
+                if result['performance']['mae'] < best_mae:
+                    best_mae = result['performance']['mae']
+                    best_cycle = result
+            
+            if best_cycle:
+                print(f"   🥇 En iyi cycle: {best_cycle['cycle']}")
+                print(f"   📊 MAE: {best_cycle['performance']['mae']:.4f}")
+                print(f"   📊 Accuracy: {best_cycle['performance']['accuracy']:.4f}")
+                print(f"   📊 RMSE: {best_cycle['performance']['rmse']:.4f}")
+                print(f"   📊 Crash Detection: {best_cycle['performance']['crash_detection']:.4f}")
+                
+                # En iyi modeli registry'e ekle
+                self.model_registry.register_model(
+                    best_cycle['model_name'],
+                    config['model_type'],
+                    config,
+                    best_cycle['performance']
+                )
+                
+                print(f"💾 En iyi model registry'e eklendi: {best_cycle['model_name']}")
+            
+            # Cycle evolution göster
+            print(f"\n📈 Cycle Evolution:")
+            for i, result in enumerate(results):
+                print(f"   Cycle {result['cycle']}: MAE={result['performance']['mae']:.4f}, "
+                      f"Acc={result['performance']['accuracy']:.4f}")
+            
+            # Model dosyalarını listele
+            print(f"\n💾 Kaydedilen modeller:")
+            for result in results:
+                print(f"   - {result['model_name']}")
+                print(f"     Path: {result['model_path']}")
+                print(f"     Metadata: {result['metadata_path']}")
+        
+        # Progress tamamlandı
+        self.progress.value = 100
+        self.cycle_info.value = f"✅ Rolling training tamamlandı! {len(results)} cycle"
+        
+        # Plot evolution
+        self.plot_cycle_evolution(results)
+    
+    def plot_cycle_evolution(self, results):
+        """Cycle evolution grafiği"""
+        try:
+            import matplotlib.pyplot as plt
+            
+            cycles = [r['cycle'] for r in results]
+            maes = [r['performance']['mae'] for r in results]
+            accuracies = [r['performance']['accuracy'] for r in results]
+            
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            
+            # MAE evolution
+            ax1.plot(cycles, maes, marker='o', linewidth=2, markersize=8)
+            ax1.set_xlabel('Cycle')
+            ax1.set_ylabel('MAE')
+            ax1.set_title('MAE Evolution Across Cycles')
+            ax1.grid(True, alpha=0.3)
+            
+            # Accuracy evolution
+            ax2.plot(cycles, accuracies, marker='s', linewidth=2, markersize=8, color='green')
+            ax2.set_xlabel('Cycle')
+            ax2.set_ylabel('Accuracy')
+            ax2.set_title('Accuracy Evolution Across Cycles')
+            ax2.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.show()
+            
+        except Exception as e:
+            with self.output_area:
+                print(f"⚠️ Grafik çizim hatası: {e}")
+    
+    def stop_training(self):
+        """Eğitimi durdur"""
+        self.train_button.disabled = False
+        self.stop_button.disabled = True
+        self.current_training = None
+        
+        with self.output_area:
+            print("⏹️ Rolling training durduruldu!")
+        
+        self.cycle_info.value = "Rolling training durduruldu."
+    
+    def display_interface(self):
+        """Arayüzü göster"""
+        # Model seçimi ve parametreler
+        model_section = widgets.VBox([
+            widgets.HTML("<h3>🔄 Rolling Window Model Seçimi</h3>"),
+            self.model_selector,
+            widgets.HTML("<br>"),
+            widgets.HTML("<h4>⚙️ Rolling Window Parametreleri</h4>"),
+            self.chunk_size,
+            self.sequence_length,
+            self.epochs_per_cycle,
+            self.batch_size,
+            self.learning_rate
+        ])
+        
+        # Eğitim kontrolleri
+        training_section = widgets.VBox([
+            widgets.HTML("<h3>🚀 Rolling Training Kontrolleri</h3>"),
+            widgets.HBox([self.train_button, self.stop_button]),
+            self.progress,
+            self.cycle_info
+        ])
+        
+        # Ana arayüz
+        main_interface = widgets.VBox([
+            widgets.HTML("<h2>🔄 JetX Rolling Window Trainer</h2>"),
+            widgets.HTML("<p>Bu sistem 1000'er kayıtlık chunk'larda rolling window training yapar.</p>"),
+            model_section,
+            training_section,
+            widgets.HTML("<h3>📊 Eğitim Çıktısı</h3>"),
+            self.output_area
+        ])
+        
+        display(main_interface)
+
+
+# Model Download Utilities
+def download_trained_models():
+    """Download trained models from Colab"""
+    try:
+        from google.colab import files
+        
+        models_dir = "/content/trained_models"
+        if not os.path.exists(models_dir):
+            print("❌ Trained models directory not found!")
+            return
+        
+        # List available models
+        model_files = [f for f in os.listdir(models_dir) if f.endswith('.pth')]
+        
+        if not model_files:
+            print("❌ No trained models found!")
+            return
+        
+        print(f"📊 Available models: {len(model_files)}")
+        
+        # Download each model
+        for model_file in model_files:
+            model_path = os.path.join(models_dir, model_file)
+            print(f"📥 Downloading: {model_file}")
+            files.download(model_path)
+            
+            # Download metadata if exists
+            metadata_file = model_file.replace('.pth', '_metadata.json')
+            metadata_path = os.path.join(models_dir, metadata_file)
+            if os.path.exists(metadata_path):
+                files.download(metadata_path)
+        
+        print("✅ All models downloaded!")
+        
+    except Exception as e:
+        print(f"❌ Download error: {e}")
+
+
+def create_download_interface():
+    """Create download interface"""
+    download_button = widgets.Button(
+        description='📥 Download All Models',
+        button_style='info',
+        layout=widgets.Layout(width='200px')
+    )
+    
+    def on_download_click(button):
+        download_trained_models()
+    
+    download_button.on_click(on_download_click)
+    
+    download_interface = widgets.VBox([
+        widgets.HTML("<h3>📥 Model Download</h3>"),
+        widgets.HTML("<p>Eğitilmiş modelleri bilgisayarınıza indirin.</p>"),
+        download_button
+    ])
+    
+    return download_interface
+
+
+# Results Analysis
+def analyze_training_results():
+    """Analyze training results"""
+    try:
+        models_dir = "/content/trained_models"
+        results_files = [f for f in os.listdir(models_dir) if f.startswith('rolling_training_results')]
+        
+        if not results_files:
+            print("❌ No training results found!")
+            return
+        
+        # Load latest results
+        latest_results = sorted(results_files)[-1]
+        results_path = os.path.join(models_dir, latest_results)
+        
+        with open(results_path, 'r') as f:
+            results = json.load(f)
+        
+        print(f"📊 Training Results Analysis")
+        print(f"📂 File: {latest_results}")
+        print("=" * 50)
+        
+        for result in results:
+            model_type = result['model_type']
+            cycles = result['cycles']
+            
+            print(f"\n🎯 {model_type} Results:")
+            print(f"   Total cycles: {len(cycles)}")
+            
+            # Best performance
+            best_cycle = min(cycles, key=lambda x: x['performance']['mae'])
+            print(f"   Best cycle: {best_cycle['cycle']}")
+            print(f"   Best MAE: {best_cycle['performance']['mae']:.4f}")
+            print(f"   Best Accuracy: {best_cycle['performance']['accuracy']:.4f}")
+            
+            # Performance trend
+            maes = [c['performance']['mae'] for c in cycles]
+            trend = "📈 Improving" if maes[-1] < maes[0] else "📉 Declining"
+            print(f"   Trend: {trend}")
+    
+    except Exception as e:
+        print(f"❌ Analysis error: {e}")
+
+
+print("✅ Rolling Window Training Integration hazır!")
+print("📊 Kullanım:")
+print("1. real_trainer = RealJetXTrainingInterface(model_registry, ROLLING_CHUNKS)")
+print("2. real_trainer.display_interface()")
