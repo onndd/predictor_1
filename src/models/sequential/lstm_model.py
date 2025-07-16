@@ -90,15 +90,15 @@ class ModernLSTMModel:
     def __init__(self, seq_length=200, n_features=1, threshold=1.5, 
                  multi_output=True, use_attention=True, use_residual=True):
         """
-        Modern LSTM modeli - JetX için optimize edilmiş
+        Modern LSTM model - optimized for JetX
         
         Args:
-            seq_length: Dizi uzunluğu
-            n_features: Özellik sayısı
-            threshold: Eşik değeri
+            seq_length: Sequence length
+            n_features: Number of features
+            threshold: Threshold value
             multi_output: Multi-output prediction
-            use_attention: Attention mechanism kullan
-            use_residual: Residual connections kullan
+            use_attention: Use attention mechanism
+            use_residual: Use residual connections
         """
         self.seq_length = seq_length
         self.n_features = n_features
@@ -108,7 +108,7 @@ class ModernLSTMModel:
         self.use_residual = use_residual
         self.model = None
         self.history = None
-        self.is_binary = True  # İkili sınıflandırma (eşik üstü/altı)
+        self.is_binary = True  # Binary classification (above/below threshold)
         
         # JetX-specific feature extractor
         self.feature_extractor = JetXLSTMFeatureExtractor(threshold=threshold)
@@ -116,13 +116,13 @@ class ModernLSTMModel:
     def build_model(self, lstm_units=128, dropout_rate=0.2, learning_rate=0.001,
                    attention_heads=8, num_layers=2):
         """
-        Modern LSTM modelini oluşturur
+        Build modern LSTM model
         Args:
-            lstm_units: LSTM birim sayısı
-            dropout_rate: Dropout oranı
-            learning_rate: Öğrenme oranı
-            attention_heads: Attention head sayısı
-            num_layers: LSTM katman sayısı
+            lstm_units: LSTM units count
+            dropout_rate: Dropout rate
+            learning_rate: Learning rate
+            attention_heads: Attention heads count
+            num_layers: LSTM layers count
         """
         # Input - enhanced features will be 6 features per timestep
         enhanced_features = 6 if self.multi_output else self.n_features

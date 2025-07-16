@@ -217,9 +217,9 @@ class RollingWindowTrainer:
     
     def execute_rolling_training(self, model_type, config, progress_callback=None):
         """Execute rolling window training"""
-        print(f"🚀 Rolling window training başlatıldı: {model_type}")
-        print(f"📊 Toplam chunk sayısı: {len(self.chunks)}")
-        print(f"📊 Chunk boyutu: {self.chunk_size}")
+        print(f"🚀 Rolling window training started: {model_type}")
+        print(f"📊 Total number of chunks: {len(self.chunks)}")
+        print(f"📊 Chunk size: {self.chunk_size}")
         
         cycle_results = []
         

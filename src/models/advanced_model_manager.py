@@ -67,9 +67,12 @@ class AdvancedModelManager:
     - Model performance tracking
     """
     
-    def __init__(self, models_dir: str = "trained_models", db_path: str = "jetx_data.db"):
+    def __init__(self, models_dir: str = "trained_models", db_path: str = "jetx_data.db",
+                 min_prediction_value: float = 0.0, max_prediction_value: float = 1000.0):
         self.models_dir = models_dir
         self.db_path = db_path
+        self.min_prediction_value = min_prediction_value
+        self.max_prediction_value = max_prediction_value
         self.create_directories()
         
         # Model registry
@@ -206,7 +209,10 @@ class AdvancedModelManager:
             # Light ensemble
             try:
                 light_models = create_enhanced_light_models()
-                self.models['light_ensemble'] = LightModelEnsemble(light_models)
+                light_ensemble = LightModelEnsemble(threshold=1.5)
+                for name, model in light_models.items():
+                    light_ensemble.add_model(name, model)
+                self.models['light_ensemble'] = light_ensemble
                 print("✓ Light ensemble initialized")
             except Exception as e:
                 print(f"✗ Light ensemble failed: {e}")
@@ -378,14 +384,40 @@ class AdvancedModelManager:
         try:
             model = self.models[model_name]
             
-            # Check if model is trained
-            if hasattr(model, 'is_trained') and not model.is_trained:
-                print(f"Model {model_name} is not trained")
+            # Comprehensive model training check
+            if hasattr(model, 'is_trained'):
+                if not model.is_trained:
+                    print(f"Model {model_name} is not trained")
+                    return None
+            elif hasattr(model, 'model') and hasattr(model.model, 'training'):
+                # For PyTorch models, check if model exists and is not in training mode
+                if model.model is None:
+                    print(f"Model {model_name} is not initialized")
+                    return None
+            
+            # Validate sequence length
+            if hasattr(model, 'sequence_length'):
+                if len(sequence) != model.sequence_length:
+                    print(f"Model {model_name} expects sequence length {model.sequence_length}, got {len(sequence)}")
+                    return None
+            
+            # Make prediction with error handling
+            prediction = model.predict(sequence)
+            
+            # Validate prediction
+            if prediction is None:
+                print(f"Model {model_name} returned None prediction")
                 return None
             
-            # Make prediction
-            prediction = model.predict(sequence)
-            return prediction
+            if isinstance(prediction, (int, float)):
+                # Ensure prediction is reasonable
+                if not (self.min_prediction_value <= prediction <= self.max_prediction_value):
+                    print(f"Model {model_name} prediction out of bounds: {prediction}")
+                    return None
+                return float(prediction)
+            else:
+                print(f"Model {model_name} returned invalid prediction type: {type(prediction)}")
+                return None
             
         except Exception as e:
             print(f"Prediction failed for {model_name}: {e}")
@@ -431,7 +463,7 @@ class AdvancedModelManager:
         ensemble_pred = sum(pred * weights[name] for pred, name in zip(valid_predictions, model_names))
         
         # Calculate confidence based on prediction variance
-        variance = np.var(valid_predictions)
+        variance = float(np.var(valid_predictions))
         confidence = max(0.0, 1.0 - variance / 10.0)  # Normalize confidence
         
         return {
@@ -602,8 +634,9 @@ class AdvancedModelManager:
             # Initialize optimized ensemble
             self.optimized_ensemble = OptimizedEnsemble(
                 models=self.models,
-                threshold=1.5,
-                performance_window=100
+                threshold=float(1.5),
+                performance_window=100,
+                max_model_errors=10  # More tolerant error limit
             )
             print("✓ Optimized ensemble initialized")
             
@@ -864,82 +897,76 @@ class AdvancedModelManager:
             print(f"Failed to retrain optimized ensemble: {e}")
 
     def extract_knowledge_from_heavy_models(self) -> Optional[Any]:
-        """Heavy modellerden bilgi çıkar"""
+        """Extracts knowledge from heavy models"""
         if not self.knowledge_transfer_enabled:
             print("Knowledge transfer not available")
             return None
         
-        print("Heavy modellerden bilgi çıkarılıyor...")
+        print("Extracting knowledge from heavy models...")
         
         try:
-            # HeavyModelKnowledge instance oluştur
+            # Create HeavyModelKnowledge instance
             from .enhanced_light_models import HeavyModelKnowledge
             knowledge = HeavyModelKnowledge()
             
-            # Pattern weights ekle
+            # Add pattern weights (example - to be replaced with real extraction)
             knowledge.add_pattern_weight("high_volatility", 1.2)
             knowledge.add_pattern_weight("low_values", 1.3)
             knowledge.add_pattern_weight("high_values", 0.8)
             knowledge.add_pattern_weight("consecutive_highs", 0.7)
             knowledge.add_pattern_weight("oscillation", 1.1)
             
-            # Threshold adjustments ekle
+            # Add threshold adjustments
             knowledge.add_threshold_adjustment("high_volatility", -0.1)
             knowledge.add_threshold_adjustment("low_values", 0.05)
             knowledge.add_threshold_adjustment("high_values", -0.05)
             
-            # Feature importance (örnek - gerçek implementasyonda heavy modellerden çıkarılacak)
-            knowledge.add_feature_importance("recent_mean", 0.85)
-            knowledge.add_feature_importance("volatility", 0.92)
-            knowledge.add_feature_importance("consecutive_pattern", 0.78)
-            knowledge.add_feature_importance("momentum", 0.71)
-            
-            # Heavy modellerden gerçek bilgi çıkarma
+            # Extract real knowledge from models
             if self.models:
                 self._extract_patterns_from_models(knowledge)
             
             self.heavy_knowledge = knowledge
-            print("✅ Heavy model bilgisi başarıyla çıkarıldı")
+            print("✅ Knowledge successfully extracted from heavy models")
             return knowledge
             
         except Exception as e:
-            print(f"Heavy model bilgi çıkarma hatası: {e}")
+            print(f"Error extracting knowledge from heavy models: {e}")
             return None
     
     def _extract_patterns_from_models(self, knowledge: Any):
-        """Modellerden pattern bilgilerini çıkar"""
+        """Extracts pattern information from models"""
         try:
-            # Her heavy model için
+            # For each heavy model
             for model_name, model in self.models.items():
                 if self.model_configs[model_name].get('is_heavy', False):
                     if hasattr(model, 'model') and hasattr(model.model, 'state_dict'):
-                        # PyTorch modellerden bilgi çıkar
+                        # Extract from PyTorch models
                         self._extract_from_torch_model(model, knowledge, model_name)
                     elif hasattr(model, 'get_feature_importance'):
-                        # Scikit-learn tarzı modellerden bilgi çıkar
+                        # Extract from scikit-learn style models
                         self._extract_from_sklearn_model(model, knowledge, model_name)
         except Exception as e:
             print(f"Pattern extraction error: {e}")
     
     def _extract_from_torch_model(self, model: Any, knowledge: Any, model_name: str):
-        """PyTorch modelinden bilgi çıkar"""
+        """Extracts information from a PyTorch model"""
         try:
-            # Model weights'lerden pattern çıkar (basit örnek)
+            # Extract patterns from model weights (simple example)
             if hasattr(model, 'get_attention_weights'):
-                # Attention weights'lerden önemli pattern'leri çıkar
+                # Extract important patterns from attention weights
                 attention_weights = model.get_attention_weights()
                 
-                # En yüksek attention'a sahip pattern'leri belirle
+                # Determine patterns with the highest attention
                 top_patterns = self._analyze_attention_patterns(attention_weights)
                 
                 for pattern, weight in top_patterns.items():
                     knowledge.add_pattern_weight(f"{model_name}_{pattern}", weight)
             
-            # Model performance'dan threshold adjustment çıkar
+            # Extract threshold adjustment from model performance
             if hasattr(model, 'get_performance_metrics'):
                 metrics = model.get_performance_metrics()
                 if metrics and 'accuracy' in metrics:
-                    # Yüksek accuracy'li modellerin threshold ayarları
+                    # Threshold adjustments for high-accuracy models
                     if metrics['accuracy'] > 0.8:
                         knowledge.add_threshold_adjustment(f"{model_name}_high_acc", 0.02)
                     elif metrics['accuracy'] < 0.6:
@@ -948,19 +975,23 @@ class AdvancedModelManager:
             print(f"Torch model extraction error for {model_name}: {e}")
     
     def _extract_from_sklearn_model(self, model: Any, knowledge: Any, model_name: str):
-        """Scikit-learn modelinden bilgi çıkar"""
+        """Extracts information from a scikit-learn model"""
         try:
-            # Feature importance çıkar
-            if hasattr(model, 'feature_importances_'):
-                importances = model.feature_importances_
+            # Extract feature importance
+            if hasattr(model, 'model') and hasattr(model.model, 'feature_importances_') and hasattr(model, 'feature_names'):
+                importances = model.model.feature_importances_
+                feature_names = model.feature_names
                 
-                # En önemli feature'ları belirle
-                top_features = self._get_top_features(importances)
-                
-                for feature, importance in top_features.items():
-                    knowledge.add_feature_importance(f"{model_name}_{feature}", importance)
-            
-            # Decision tree'lerden threshold bilgisi çıkar
+                if len(importances) == len(feature_names):
+                    # Combine names and importances and sort
+                    feature_importance_dict = dict(zip(feature_names, importances))
+                    
+                    # Add to knowledge
+                    for name, importance_score in feature_importance_dict.items():
+                        knowledge.add_feature_importance(f"{model_name}_{name}", float(importance_score))
+                    print(f"✅ Extracted {len(feature_names)} feature importances from {model_name}")
+
+            # Extract threshold information from decision trees
             if hasattr(model, 'tree_'):
                 thresholds = self._extract_decision_thresholds(model.tree_)
                 for condition, threshold in thresholds.items():
@@ -970,10 +1001,10 @@ class AdvancedModelManager:
             print(f"Sklearn model extraction error for {model_name}: {e}")
     
     def _analyze_attention_patterns(self, attention_weights: Any) -> Dict[str, float]:
-        """Attention weights'lerden pattern analizi"""
+        """Analyzes attention weights to find patterns"""
         patterns = {}
         try:
-            # Basit pattern analizi (gerçek implementasyon daha karmaşık olacak)
+            # Simple pattern analysis (real implementation will be more complex)
             patterns["high_attention"] = 1.1
             patterns["low_attention"] = 0.9
             patterns["mixed_attention"] = 1.0
@@ -982,10 +1013,10 @@ class AdvancedModelManager:
         return patterns
     
     def _get_top_features(self, importances: Any) -> Dict[str, float]:
-        """En önemli feature'ları belirle"""
+        """Determines the most important features"""
         features = {}
         try:
-            # Feature importance'a göre sıralama
+            # Sort by feature importance
             if hasattr(importances, '__iter__'):
                 for i, importance in enumerate(importances[:10]):  # Top 10
                     features[f"feature_{i}"] = float(importance)
@@ -994,76 +1025,76 @@ class AdvancedModelManager:
         return features
     
     def _extract_decision_thresholds(self, tree: Any) -> Dict[str, float]:
-        """Decision tree'den threshold bilgisi çıkar"""
+        """Extracts decision threshold information from a decision tree"""
         thresholds = {}
         try:
-            # Decision tree threshold'larını analiz et
+            # Analyze decision tree thresholds
             thresholds["decision_threshold"] = 0.01
         except:
             pass
         return thresholds
     
     def transfer_knowledge_to_light_models(self):
-        """Heavy model bilgisini light modellere aktar"""
+        """Transfers knowledge from heavy models to light models"""
         if not self.knowledge_transfer_enabled:
             print("Knowledge transfer not available")
             return False
         
         if not self.heavy_knowledge:
-            print("Heavy model bilgisi mevcut değil, önce extract_knowledge_from_heavy_models() çalıştırın")
+            print("Heavy model knowledge not available, run extract_knowledge_from_heavy_models() first")
             return False
         
-        print("Heavy model bilgisi light modellere aktarılıyor...")
+        print("Transferring knowledge from heavy models to light models...")
         
         try:
-            # Light modelleri güncelle
+            # Update light models
             for model_name, model in self.models.items():
                 if not self.model_configs[model_name].get('is_heavy', False):
-                    # Light model ise knowledge transfer yap
+                    # If it's a light model, perform knowledge transfer
                     if hasattr(model, 'update_with_heavy_knowledge'):
                         model.update_with_heavy_knowledge(self.heavy_knowledge)
                     elif hasattr(model, 'models'):
-                        # Ensemble ise tüm alt modelleri güncelle
+                        # If it's an ensemble, update all sub-models
                         if hasattr(model, 'update_with_heavy_knowledge'):
                             model.update_with_heavy_knowledge(self.heavy_knowledge)
             
-            print("✅ Knowledge transfer tamamlandı")
+            print("✅ Knowledge transfer completed")
             return True
             
         except Exception as e:
-            print(f"Knowledge transfer hatası: {e}")
+            print(f"Knowledge transfer error: {e}")
             return False
     
     def auto_knowledge_transfer(self):
-        """Otomatik knowledge transfer"""
+        """Automatic knowledge transfer"""
         if not self.knowledge_transfer_enabled:
             return False
         
-        print("Otomatik knowledge transfer başlatılıyor...")
+        print("Starting automatic knowledge transfer...")
         
-        # Heavy modellerin eğitilmiş olup olmadığını kontrol et
+        # Check if heavy models are trained
         heavy_models_trained = any(
-            model_name in self.models and 
-            hasattr(self.models[model_name], 'is_trained') and 
+            model_name in self.models and
+            hasattr(self.models[model_name], 'is_trained') and
             self.models[model_name].is_trained
             for model_name in self.model_configs
             if self.model_configs[model_name].get('is_heavy', False)
         )
         
         if not heavy_models_trained:
-            print("Heavy modeller henüz eğitilmemiş")
+            print("Heavy models have not been trained yet")
             return False
         
-        # Bilgi çıkar
+        # Extract knowledge
         knowledge = self.extract_knowledge_from_heavy_models()
         if not knowledge:
             return False
         
-        # Light modellere aktar
+        # Transfer to light models
         return self.transfer_knowledge_to_light_models()
     
     def get_knowledge_transfer_status(self) -> Dict[str, Any]:
-        """Knowledge transfer durumunu al"""
+        """Gets the status of knowledge transfer"""
         status = {
             'knowledge_transfer_enabled': self.knowledge_transfer_enabled,
             'heavy_knowledge_available': self.heavy_knowledge is not None,
@@ -1076,36 +1107,36 @@ class AdvancedModelManager:
         if self.knowledge_transfer_enabled and self.heavy_knowledge:
             status['knowledge_summary'] = self.heavy_knowledge.get_summary()
         
-        # Model durumlarını analiz et
+        # Analyze model statuses
         for model_name, config in self.model_configs.items():
             if config.get('is_heavy', False):
                 status['total_heavy_models'] += 1
-                if (model_name in self.models and 
-                    hasattr(self.models[model_name], 'is_trained') and 
+                if (model_name in self.models and
+                    hasattr(self.models[model_name], 'is_trained') and
                     self.models[model_name].is_trained):
                     status['heavy_models_trained'] += 1
             else:
                 status['total_light_models'] += 1
-                if (model_name in self.models and 
-                    hasattr(self.models[model_name], 'knowledge_boost_enabled') and 
+                if (model_name in self.models and
+                    hasattr(self.models[model_name], 'knowledge_boost_enabled') and
                     self.models[model_name].knowledge_boost_enabled):
                     status['light_models_with_knowledge'] += 1
         
         return status
     
     def save_knowledge(self, filepath: str):
-        """Heavy model bilgisini kaydet"""
+        """Saves the heavy model knowledge"""
         if self.heavy_knowledge:
             try:
                 self.heavy_knowledge.save_knowledge(filepath)
-                print(f"✅ Heavy model bilgisi kaydedildi: {filepath}")
+                print(f"✅ Heavy model knowledge saved: {filepath}")
             except Exception as e:
-                print(f"Knowledge save hatası: {e}")
+                print(f"Knowledge save error: {e}")
         else:
-            print("Kaydedilecek heavy model bilgisi yok")
+            print("No heavy model knowledge to save")
     
     def load_knowledge(self, filepath: str):
-        """Heavy model bilgisini yükle"""
+        """Loads the heavy model knowledge"""
         if not self.knowledge_transfer_enabled:
             print("Knowledge transfer not available")
             return False
@@ -1116,14 +1147,14 @@ class AdvancedModelManager:
             
             if knowledge:
                 self.heavy_knowledge = knowledge
-                print(f"✅ Heavy model bilgisi yüklendi: {filepath}")
+                print(f"✅ Heavy model knowledge loaded: {filepath}")
                 return True
             else:
-                print("Knowledge yükleme başarısız")
+                print("Knowledge loading failed")
                 return False
                 
         except Exception as e:
-            print(f"Knowledge load hatası: {e}")
+            print(f"Knowledge load error: {e}")
             return False
 
     def get_dependency_error(self) -> Optional[str]:

@@ -3,14 +3,14 @@ from sklearn.model_selection import TimeSeriesSplit
 
 def create_sequences(data, seq_length):
     """
-    Zaman serisi verilerinden sıralı diziler oluşturur
+    Create sequential arrays from time series data
     
     Args:
-        data: Sayısal veri dizisi
-        seq_length: Dizi uzunluğu
+        data: Numerical data array
+        seq_length: Sequence length
         
     Returns:
-        tuple: X (input sequences) ve y (hedef değerler)
+        tuple: X (input sequences) and y (target values)
     """
     X, y = [], []
     for i in range(len(data) - seq_length):
@@ -20,15 +20,15 @@ def create_sequences(data, seq_length):
 
 def time_series_split(data, n_splits=5, test_size=0.2):
     """
-    Zaman serisi verilerini eğitim/test olarak böler
+    Split time series data into training/test sets
     
     Args:
-        data: Veri dizisi
-        n_splits: Kaç farklı bölünme yapılacağı
-        test_size: Test setinin büyüklük oranı
+        data: Data array
+        n_splits: Number of different splits to create
+        test_size: Test set size ratio
         
     Returns:
-        list: (train_indices, test_indices) çiftlerinin listesi
+        list: List of (train_indices, test_indices) pairs
     """
     tscv = TimeSeriesSplit(n_splits=n_splits, test_size=int(len(data) * test_size))
     splits = []
@@ -40,37 +40,37 @@ def time_series_split(data, n_splits=5, test_size=0.2):
 
 def create_above_threshold_target(data, threshold=1.5):
     """
-    Eşik değeri üstünde/altında ikili hedef değerler oluşturur
+    Create binary target values for above/below threshold
     
     Args:
-        data: Veri dizisi
-        threshold: Eşik değeri (varsayılan=1.5)
+        data: Data array
+        threshold: Threshold value (default=1.5)
         
     Returns:
-        numpy.ndarray: İkili hedef değerler (0=altında, 1=üstünde)
+        numpy.ndarray: Binary target values (0=below, 1=above)
     """
     return (np.array(data) >= threshold).astype(int)
 
 def create_category_target(data):
     """
-    Kategori hedef değerleri oluşturur
+    Create category target values
     
     Args:
-        data: Veri dizisi
+        data: Data array
         
     Returns:
-        list: Kategori kodlarının listesi
+        list: List of category codes
     """
     from .transformer import transform_to_categories
     return transform_to_categories(data)
 
 def split_recent(data, recent_size=1000):
     """
-    Verileri son N kayıt ve önceki kayıtlar olarak böler
+    Split data into recent N records and older records
     
     Args:
-        data: Veri dizisi
-        recent_size: Son kaç kaydın "yeni" kabul edileceği
+        data: Data array
+        recent_size: Number of recent records to consider as "new"
         
     Returns:
         tuple: (older_data, recent_data)

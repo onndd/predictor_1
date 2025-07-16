@@ -12,13 +12,13 @@ except ImportError:
 class DTWModel:
     def __init__(self, window_size=10, max_neighbors=5, threshold=1.5, max_distance=0.5):
         """
-        Dynamic Time Warping modeli
+        Dynamic Time Warping model for JetX prediction
         
         Args:
-            window_size: Karşılaştırılacak dizi uzunluğu
-            max_neighbors: Maksimum komşu sayısı
-            threshold: Eşik değeri
-            max_distance: Maksimum DTW mesafesi
+            window_size: Length of sequences to compare
+            max_neighbors: Maximum number of neighbors
+            threshold: Threshold value
+            max_distance: Maximum DTW distance
         """
         self.window_size = window_size
         self.max_neighbors = max_neighbors
@@ -29,15 +29,15 @@ class DTWModel:
         
     def fit(self, values):
         """
-        Modeli eğitir
+        Train the model
         
         Args:
-            values: Değerler dizisi
+            values: Sequence of values
         """
         if len(values) <= self.window_size:
             return
             
-        # Diziler oluştur
+        # Create sequences
         self.sequences = []
         self.next_values = []
         
@@ -79,14 +79,14 @@ class DTWModel:
     
     def _get_nearest_sequences(self, query_sequence, top_n=None):
         """
-        En yakın dizileri bulur
+        Find nearest sequences using DTW distance
         
         Args:
-            query_sequence: Sorgu dizisi
-            top_n: Döndürülecek maksimum sonuç sayısı
+            query_sequence: Query sequence
+            top_n: Maximum number of results to return
             
         Returns:
-            list: (mesafe, indeks, sonraki değer) üçlülerinin listesi
+            list: List of (distance, index, next_value) tuples
         """
         if not self.sequences:
             return []
@@ -94,81 +94,81 @@ class DTWModel:
         if top_n is None:
             top_n = self.max_neighbors
             
-        # DTW mesafelerini hesapla
+        # Calculate DTW distances
         distances = []
         
         for i, seq in enumerate(self.sequences):
             try:
                 if FASTDTW_AVAILABLE:
-                    # FastDTW mesafesini hesapla
+                    # Calculate FastDTW distance
                     distance, _ = fastdtw(query_sequence, seq, dist=euclidean)
                 else:
                     # Basic DTW implementation
                     distance = self._basic_dtw_distance(query_sequence, seq)
                 
-                # Normalize et - sequence length'e göre
+                # Normalize by sequence length
                 distance /= max(len(query_sequence), len(seq))
                 
                 if distance <= self.max_distance:
                     distances.append((distance, i, self.next_values[i]))
             except Exception as e:
-                # Hata durumunda euclidean distance kullan
+                # Use euclidean distance as fallback
                 if len(query_sequence) == len(seq):
                     distance = euclidean(query_sequence, seq)
                     distance /= len(query_sequence)
                     if distance <= self.max_distance:
                         distances.append((distance, i, self.next_values[i]))
         
-        # Mesafeye göre sırala
+        # Sort by distance
         distances.sort(key=lambda x: x[0])
         
-        # En yakın top_n sonucu döndür
+        # Return top_n nearest results
         return distances[:top_n]
     
     def predict_next_value(self, sequence):
         """
-        Bir sonraki değeri tahmin eder
+        Predict the next value in the sequence
         
         Args:
-            sequence: Değerler dizisi
+            sequence: Input sequence of values
             
         Returns:
-            tuple: (tahmini değer, eşik üstü olasılığı)
+            tuple: (predicted_value, above_threshold_probability)
         """
         if not self.sequences or len(sequence) < self.window_size:
             return None, 0.5
             
-        # Son window_size değeri al
+        # Get last window_size values
         query = sequence[-self.window_size:]
         
-        # En yakın dizileri bul
+        # Find nearest sequences
         nearest = self._get_nearest_sequences(query)
         
         if not nearest:
             return None, 0.5
             
-        # Ağırlıklı tahmin
+        # Weighted prediction
         total_weight = 0
         weighted_sum = 0
         above_weight = 0
         
         for distance, _, next_value in nearest:
-            # Uzaklık tersini ağırlık olarak kullan
+            # Use inverse distance as weight
             weight = 1.0 / (distance + 1e-5)
             total_weight += weight
             weighted_sum += next_value * weight
             
-            # Eşik üstü ağırlık
+            # Weight for above threshold
             if next_value >= self.threshold:
                 above_weight += weight
         
         if total_weight == 0:
             return None, 0.5
             
-        # Ağırlıklı ortalama
+        # Weighted average
         prediction = weighted_sum / total_weight
         
-        # Eşik üstü olasılığı
+        # Above threshold probability
         above_prob = above_weight / total_weight
         
         return prediction, above_prob

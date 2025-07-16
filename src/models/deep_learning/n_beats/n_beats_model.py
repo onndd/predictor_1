@@ -400,7 +400,7 @@ class JetXPatternDetector:
             return 0.0
         
         # Low volatility indicates stability
-        volatility = np.std(sequence[-10:])
+        volatility = float(np.std(sequence[-10:]))
         return max(0.0, 1.0 - volatility / 0.5)
     
     def _count_consecutive_above_threshold(self, sequence: np.ndarray) -> int:
@@ -625,15 +625,15 @@ class NBeatsPredictor:
         
         return self.training_history
     
-    def predict(self, sequence: List[float]) -> Tuple[float, float, float]:
+    def predict(self, sequence: List[float]) -> float:
         """
-        Make a prediction and return value, probability, and confidence.
+        Make a prediction and return predicted value.
         
         Args:
             sequence: Input sequence of length sequence_length
             
         Returns:
-            A tuple of (predicted_value, above_threshold_probability, confidence_score)
+            Predicted value
         """
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
@@ -641,31 +641,77 @@ class NBeatsPredictor:
         if len(sequence) != self.sequence_length:
             raise ValueError(f"Sequence must have length {self.sequence_length}")
         
-        self.model.eval()
-        with torch.no_grad():
-            x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
-            
-            # Ensure tensor is on the same device as model
-            if next(self.model.parameters()).is_cuda:
-                x = x.cuda()
-            
-            predictions = self.model(x) # Returns a dict
-            
-            value = predictions['value'].squeeze().item()
-            probability = predictions['probability'].squeeze().item()
-            confidence = predictions['confidence'].squeeze().item()
-        
-        return value, probability, confidence
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
+                
+                # Ensure tensor is on the same device as model
+                device = next(self.model.parameters()).device
+                x = x.to(device)
+                
+                predictions = self.model(x)  # Returns a dict
+                
+                value = predictions['value'].squeeze().item()
+                
+                # Ensure value is reasonable
+                if not isinstance(value, (int, float)) or np.isnan(value) or np.isinf(value):
+                    raise ValueError("Model produced invalid prediction")
+                
+                return float(value)
+                
+        except Exception as e:
+            raise RuntimeError(f"Prediction failed: {str(e)}")
     
-    def predict_next_value(self, sequence: List[float]) -> Tuple[float, float, float]:
+    def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         """
-        Compatibility method for ensemble systems
+        Make a prediction with confidence metrics.
+        
+        Args:
+            sequence: Input sequence of length sequence_length
+            
+        Returns:
+            tuple: (predicted_value, above_threshold_probability, confidence_score)
+        """
+        if not self.is_trained:
+            raise ValueError("Model must be trained before making predictions")
+        
+        if len(sequence) != self.sequence_length:
+            raise ValueError(f"Sequence must have length {self.sequence_length}")
+        
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
+                
+                # Ensure tensor is on the same device as model
+                device = next(self.model.parameters()).device
+                x = x.to(device)
+                
+                predictions = self.model(x)  # Returns a dict
+                
+                value = predictions['value'].squeeze().item()
+                probability = predictions['probability'].squeeze().item()
+                confidence = predictions['confidence'].squeeze().item()
+                
+                # Validate outputs
+                if any(np.isnan([value, probability, confidence])) or any(np.isinf([value, probability, confidence])):
+                    raise ValueError("Model produced invalid predictions")
+                
+                return float(value), float(probability), float(confidence)
+                
+        except Exception as e:
+            raise RuntimeError(f"Prediction with confidence failed: {str(e)}")
+    
+    def predict_next_value(self, sequence: List[float]) -> float:
+        """
+        Compatibility method for ensemble systems - returns only the predicted value
         
         Args:
             sequence: Input sequence
             
         Returns:
-            tuple: (predicted_value, above_threshold_probability, confidence)
+            Predicted value
         """
         return self.predict(sequence)
     

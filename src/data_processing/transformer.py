@@ -1,16 +1,22 @@
-# transformer.py DOSYASININ TAM VE GÜNCEL İÇERİĞİ
+"""
+JetX Data Transformer - Advanced categorization system for JetX game values
+Provides detailed value categorization, fuzzy membership, and n-gram analysis
+"""
 
 import numpy as np
+from typing import List, Tuple, Dict, Any, Optional
+import warnings
+warnings.filterwarnings('ignore')
 
-# Kategori tanımları
+# Detailed value categories for JetX game outcomes
 VALUE_CATEGORIES = {
-    # Crash Bölgesi (1.00 - 1.09) - Çok detaylı
-    'CRASH_100_101': (1.00, 1.01),  # Sadece 1.00x
+    # Crash Zone (1.00 - 1.09) - Very detailed
+    'CRASH_100_101': (1.00, 1.01),  # Only 1.00x
     'CRASH_101_103': (1.01, 1.03),
     'CRASH_103_106': (1.03, 1.06),
     'CRASH_106_110': (1.06, 1.10),
 
-    # Düşük Bölge (1.10 - 1.49) - Detaylı
+    # Low Zone (1.10 - 1.49) - Detailed
     'LOW_110_115': (1.10, 1.15),
     'LOW_115_120': (1.15, 1.20),
     'LOW_120_125': (1.20, 1.25),
@@ -18,35 +24,35 @@ VALUE_CATEGORIES = {
     'LOW_130_135': (1.30, 1.35),
     'LOW_135_140': (1.35, 1.40),
     'LOW_140_145': (1.40, 1.45),
-    'LOW_145_149': (1.45, 1.49), # 1.5 eşiğine en yakın alt bölge
+    'LOW_145_149': (1.45, 1.49),  # Closest to 1.5 threshold
 
-    # Eşik Bölgesi (1.50 - 1.99) - Orta Detaylı
-    'THRESH_150_160': (1.50, 1.60), # 1.5 eşiğini hemen geçenler
+    # Threshold Zone (1.50 - 1.99) - Medium detail
+    'THRESH_150_160': (1.50, 1.60),  # Just above 1.5 threshold
     'THRESH_160_170': (1.60, 1.70),
     'THRESH_170_185': (1.70, 1.85),
-    'THRESH_185_199': (1.85, 1.99), # 2x'e yakın
+    'THRESH_185_199': (1.85, 1.99),  # Close to 2x
 
-    # Erken Çarpanlar (2.00 - 4.99)
+    # Early Multipliers (2.00 - 4.99)
     'EARLY_2X': (2.00, 2.49),
     'EARLY_2_5X': (2.50, 2.99),
     'EARLY_3X': (3.00, 3.99),
     'EARLY_4X': (4.00, 4.99),
 
-    # Orta Çarpanlar (5.00 - 19.99)
+    # Mid Multipliers (5.00 - 19.99)
     'MID_5_7X': (5.00, 7.49),
     'MID_7_10X': (7.50, 9.99),
     'MID_10_15X': (10.00, 14.99),
     'MID_15_20X': (15.00, 19.99),
 
-    # Yüksek Çarpanlar (20.00 - 99.99)
+    # High Multipliers (20.00 - 99.99)
     'HIGH_20_30X': (20.00, 29.99),
     'HIGH_30_50X': (30.00, 49.99),
     'HIGH_50_70X': (50.00, 69.99),
     'HIGH_70_100X': (70.00, 99.99),
 
-    # Çok Yüksek Çarpanlar (100.00+)
+    # Very High Multipliers (100.00+)
     'XHIGH_100_200X': (100.00, 199.99),
-    'XHIGH_200PLUS': (200.00, float('inf')) # En yüksek kategori
+    'XHIGH_200PLUS': (200.00, float('inf'))  # Highest category
 }
 
 
@@ -73,118 +79,118 @@ SEQUENCE_CATEGORIES = {
     'S8': (1000, float('inf'))
 }
 
-def get_value_category(value):
+def get_value_category(value: float) -> str:
     """
-    Değerin detaylı kategorisini döndürür.
+    Get detailed category for a JetX value.
     
     Args:
-        value: JetX oyun sonucu (katsayı)
+        value: JetX game result (multiplier)
         
     Returns:
-        str: Kategori kodu
+        str: Category code
     """
     for category, (min_val, max_val) in VALUE_CATEGORIES.items():
         if min_val <= value < max_val:
             return category
-    return 'XHIGH_200PLUS'  # Eğer hiçbir kategoriye girmezse en yüksek kategori
+    return 'XHIGH_200PLUS'  # Default to highest category if no match
 
-def get_step_category(value):
+def get_step_category(value: float) -> str:
     """
-    0.5 adımlı değer kategorisini döndürür (T1-T9)
+    Get step category for a value (T1-T9 in 0.5 increments).
     
     Args:
-        value: JetX oyun sonucu (katsayı)
+        value: JetX game result (multiplier)
         
     Returns:
-        str: Kategori kodu
+        str: Category code
     """
     for category, (min_val, max_val) in STEP_CATEGORIES.items():
         if min_val <= value < max_val:
             return category
-    return 'T9'  # Eğer hiçbir kategoriye girmezse en yüksek kategori
+    return 'T9'  # Default to highest category if no match
 
-def get_sequence_category(seq_length):
+def get_sequence_category(seq_length: int) -> str:
     """
-    Sıra uzunluğu kategorisini döndürür (S1-S8)
+    Get sequence length category (S1-S8).
     
     Args:
-        seq_length: Dizi uzunluğu
+        seq_length: Sequence length
         
     Returns:
-        str: Kategori kodu
+        str: Category code
     """
     for category, (min_val, max_val) in SEQUENCE_CATEGORIES.items():
         if min_val <= seq_length < max_val:
             return category
-    return 'S8'  # Eğer hiçbir kategoriye girmezse en yüksek kategori
+    return 'S8'  # Default to highest category if no match
 
-def get_compound_category(value, seq_length):
+def get_compound_category(value: float, seq_length: int) -> str:
     """
-    Çaprazlamalı kategori oluşturur (VALUE_CATEGORIES, STEP_CATEGORIES, SEQUENCE_CATEGORIES kullanarak)
+    Create compound category using VALUE_CATEGORIES, STEP_CATEGORIES, and SEQUENCE_CATEGORIES.
     
     Args:
-        value: JetX oyun sonucu (katsayı)
-        seq_length: Dizi uzunluğu
+        value: JetX game result (multiplier)
+        seq_length: Sequence length
         
     Returns:
-        str: Çaprazlamalı kategori kodu
+        str: Compound category code
     """
-    val_cat = get_value_category(value) # Yeni detaylı VALUE_CATEGORIES'i kullanır
+    val_cat = get_value_category(value)
     step_cat = get_step_category(value)
     seq_cat = get_sequence_category(seq_length)
     
-    return f"{val_cat}__{step_cat}__{seq_cat}" # Ayraçları daha belirgin yaptım
+    return f"{val_cat}__{step_cat}__{seq_cat}"
 
-def transform_to_categories(values):
+def transform_to_categories(values: List[float]) -> List[str]:
     """
-    Değerleri detaylı kategorilere dönüştürür.
+    Transform values to detailed categories.
     
     Args:
-        values: JetX değerlerinin listesi
+        values: List of JetX values
         
     Returns:
-        list: Detaylı kategori kodlarının listesi
+        list: List of detailed category codes
     """
     return [get_value_category(val) for val in values]
 
-def transform_to_step_categories(values):
+def transform_to_step_categories(values: List[float]) -> List[str]:
     """
-    Değerleri 0.5 adımlı kategorilere dönüştürür
+    Transform values to step categories (0.5 increment categories).
     
     Args:
-        values: JetX değerlerinin listesi
+        values: List of JetX values
         
     Returns:
-        list: Kategori kodlarının listesi (T1-T9)
+        list: List of category codes (T1-T9)
     """
     return [get_step_category(val) for val in values]
 
-def transform_to_compound_categories(values):
+def transform_to_compound_categories(values: List[float]) -> List[str]:
     """
-    Değerleri çaprazlamalı kategorilere dönüştürür (VALUE, STEP, SEQUENCE kullanarak)
+    Transform values to compound categories (VALUE, STEP, SEQUENCE combined).
     
     Args:
-        values: JetX değerlerinin listesi
+        values: List of JetX values
         
     Returns:
-        list: Çaprazlamalı kategori kodlarının listesi
+        list: List of compound category codes
     """
     result = []
     for i, val in enumerate(values):
-        seq_length = len(values) - i  # Geriye kalan eleman sayısı
+        seq_length = len(values) - i  # Remaining elements count
         result.append(get_compound_category(val, seq_length))
     return result
 
-def fuzzy_membership(value, category_key):
+def fuzzy_membership(value: float, category_key: str) -> float:
     """
-    Bir değerin belirli bir VALUE_CATEGORIES kategorisine üyelik derecesini hesaplar (0-1 arası).
+    Calculate fuzzy membership degree of a value to a specific VALUE_CATEGORIES category (0-1).
     
     Args:
-        value: JetX oyun sonucu (katsayı)
-        category_key: VALUE_CATEGORIES içindeki kategori anahtarı (örn: 'LOW_110_115')
+        value: JetX game result (multiplier)
+        category_key: Category key in VALUE_CATEGORIES (e.g., 'LOW_110_115')
         
     Returns:
-        float: Üyelik derecesi (0-1 arası)
+        float: Membership degree (0-1)
     """
     if category_key not in VALUE_CATEGORIES:
         return 0.0
@@ -192,19 +198,18 @@ def fuzzy_membership(value, category_key):
     min_val, max_val = VALUE_CATEGORIES[category_key]
     
     if max_val == float('inf'):
-        if value >= min_val:
-            return 1.0
-        else:
-            return 0.0
+        return 1.0 if value >= min_val else 0.0
 
     range_size = max_val - min_val
-    if range_size <= 0: range_size = 0.1
+    if range_size <= 0:
+        range_size = 0.1
 
     if min_val <= value < max_val:
         mid_point = (min_val + max_val) / 2
         distance_to_mid = abs(value - mid_point)
         max_distance_to_mid = range_size / 2
-        if max_distance_to_mid == 0: return 1.0
+        if max_distance_to_mid == 0:
+            return 1.0
         return 1.0 - (distance_to_mid / max_distance_to_mid) * 0.5
     
     overlap_ratio = 0.1
@@ -220,50 +225,48 @@ def fuzzy_membership(value, category_key):
             
     return 0.0
 
-def get_value_step_crossed_category(value):
+def get_value_step_crossed_category(value: float) -> str:
     """
-    Yeni detaylı VALUE_CATEGORIES ile STEP_CATEGORIES'i çaprazlar.
+    Cross detailed VALUE_CATEGORIES with STEP_CATEGORIES.
     
     Args:
-        value: JetX oyun sonucu (katsayı)
+        value: JetX game result (multiplier)
         
     Returns:
-        str: Çaprazlanmış kategori kodu (örn: 'LOW_145_149__T1')
+        str: Crossed category code (e.g., 'LOW_145_149__T1')
     """
     val_cat = get_value_category(value)
     step_cat = get_step_category(value)
     
     return f"{val_cat}__{step_cat}"
 
-def transform_to_value_step_crossed_categories(values):
+def transform_to_value_step_crossed_categories(values: List[float]) -> List[str]:
     """
-    Değer listesini yeni çapraz (VALUE ve STEP) kategorilere dönüştürür.
+    Transform value list to crossed (VALUE and STEP) categories.
     
     Args:
-        values: JetX değerlerinin listesi
+        values: List of JetX values
         
     Returns:
-        list: Çaprazlanmış kategori kodlarının listesi
+        list: List of crossed category codes
     """
     return [get_value_step_crossed_category(val) for val in values]
 
-
-# --- ADIM 3.1'DE EKLEDİĞİMİZ YENİ FONKSİYON ---
-def transform_to_category_ngrams(categories, n=2):
+def transform_to_category_ngrams(categories: List[str], n: int = 2) -> List[Tuple[str, ...]]:
     """
-    Bir kategori listesinden n-gram'lar (sıralı n'li gruplar) oluşturur.
+    Create n-grams (sequential n-element groups) from a category list.
     
     Args:
-        categories: Kategori kodlarının listesi (örn: ['LOW_110_115', 'HIGH_20_30X'])
-        n (int): Her bir gruptaki eleman sayısı (2 = bigram, 3 = trigram).
+        categories: List of category codes (e.g., ['LOW_110_115', 'HIGH_20_30X'])
+        n: Number of elements in each group (2 = bigram, 3 = trigram)
         
     Returns:
-        list: n-gram'ların (tuple olarak) listesi.
-              Örnek n=2 için: [('LOW_110_115', 'HIGH_20_30X'), ...]
+        list: List of n-grams (as tuples)
+              Example for n=2: [('LOW_110_115', 'HIGH_20_30X'), ...]
     """
     if len(categories) < n:
         return []
-        
-    # Zip kullanarak n-gram'ları oluştur
+    
+    # Use zip to create n-grams efficiently
     ngrams = zip(*[categories[i:] for i in range(n)])
     return list(ngrams)

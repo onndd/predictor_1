@@ -61,19 +61,23 @@ class EnhancedJetXApp:
         self.is_initialized = True
     
     def load_data(self, limit=None):
-        """Load data from database"""
+        """Load data from database with SQL injection protection"""
         try:
             conn = sqlite3.connect(self.db_path)
-            if limit:
-                query = f"SELECT value FROM jetx_results ORDER BY id DESC LIMIT {limit}"
-            else:
-                query = "SELECT value FROM jetx_results ORDER BY id"
+            cursor = conn.cursor()
             
-            df = pd.read_sql_query(query, conn)
+            if limit:
+                # Use parameterized query to prevent SQL injection
+                cursor.execute("SELECT value FROM jetx_results ORDER BY id DESC LIMIT ?", (limit,))
+            else:
+                cursor.execute("SELECT value FROM jetx_results ORDER BY id")
+            
+            rows = cursor.fetchall()
             conn.close()
             
-            if len(df) > 0:
-                return df['value'].tolist()[::-1]  # Reverse to get chronological order
+            if rows:
+                values = [row[0] for row in rows]
+                return values[::-1]  # Reverse to get chronological order
             return []
         except Exception as e:
             st.error(f"Error loading data: {e}")
@@ -173,12 +177,12 @@ def main():
     dependency_error = app.model_manager.get_dependency_error()
     if dependency_error:
         st.error(f"""
-        **Kritik Bağımlılık Hatası:** Derin öğrenme modelleri yüklenemedi.
-        Sistem sınırlı modda çalışacaktır. Lütfen aşağıdaki hatayı düzeltin:
+        **Critical Dependency Error:** Deep learning models could not be loaded.
+        The system will run in a limited mode. Please fix the following error:
         
         `{dependency_error}`
         
-        **Çözüm Önerisi:** `pip install -r requirements_enhanced.txt` komutunu çalıştırın.
+        **Suggested Solution:** Run the command `pip install -r requirements_enhanced.txt`.
         """)
     
     # Sidebar for controls

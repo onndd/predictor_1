@@ -1,5 +1,6 @@
 """
 Rolling Window Training Integration for Colab Notebook
+Provides interface for rolling window training with JetX models
 """
 
 import numpy as np
@@ -8,25 +9,27 @@ from IPython.display import display, clear_output
 from datetime import datetime
 import json
 import os
-import traceback  # Hata ayıklama için eklendi
+import traceback
+from typing import Dict, List, Any, Optional, Callable
+import warnings
+warnings.filterwarnings('ignore')
 
-# Rolling Window Training System Integration
 class RealJetXTrainingInterface:
     """
-    Gerçek rolling window training ile JetX model eğitimi
+    Real rolling window training interface for JetX model training
     """
     
-    def __init__(self, model_registry, rolling_chunks):
+    def __init__(self, model_registry: Any, rolling_chunks: List[Any]):
         self.model_registry = model_registry
         self.rolling_chunks = rolling_chunks
-        self.current_training = None
-        self.rolling_trainer = None
+        self.current_training: Optional[bool] = None
+        self.rolling_trainer: Optional[Any] = None
         self.setup_widgets()
         
     def setup_widgets(self):
-        """Widget'ları kurulum"""
+        """Setup widget components"""
         
-        # Model seçimi
+        # Model selection
         self.model_selector = widgets.Dropdown(
             options=['N-Beats', 'TFT', 'LSTM'],
             value='N-Beats',
@@ -34,7 +37,7 @@ class RealJetXTrainingInterface:
             style={'description_width': 'initial'}
         )
         
-        # Rolling Window parametreleri
+        # Rolling Window parameters
         self.chunk_size = widgets.IntSlider(
             value=1000, min=500, max=2000, step=100,
             description='Chunk Size:',
@@ -66,15 +69,15 @@ class RealJetXTrainingInterface:
             style={'description_width': 'initial'}
         )
         
-        # Eğitim kontrol butonları
+        # Training control buttons
         self.train_button = widgets.Button(
-            description='🚀 Rolling Training Başlat',
+            description='🚀 Start Rolling Training',
             button_style='success',
             layout=widgets.Layout(width='250px')
         )
         
         self.stop_button = widgets.Button(
-            description='⏹️ Durdur',
+            description='⏹️ Stop',
             button_style='danger',
             layout=widgets.Layout(width='200px'),
             disabled=True
@@ -90,33 +93,33 @@ class RealJetXTrainingInterface:
         
         # Cycle info
         self.cycle_info = widgets.HTML(
-            value="Rolling window training henüz başlamadı."
+            value="Rolling window training not started yet."
         )
         
-        # Output alanları
+        # Output areas
         self.output_area = widgets.Output()
         self.model_info_area = widgets.Output()
         
-        # Event handler'lar
+        # Event handlers
         self.train_button.on_click(self.on_train_click)
         self.stop_button.on_click(self.on_stop_click)
         
     def on_train_click(self, button):
-        """Eğitim butonuna tıklandığında"""
+        """Handle training button click"""
         self.start_rolling_training()
     
     def on_stop_click(self, button):
-        """Durdur butonuna tıklandığında"""
+        """Handle stop button click"""
         self.stop_training()
     
     def start_rolling_training(self):
-        """Rolling window training'i başlat"""
+        """Start rolling window training"""
         self.train_button.disabled = True
         self.stop_button.disabled = False
         self.progress.value = 0
         self.current_training = True
         
-        # Eğitim parametrelerini al
+        # Get training parameters
         config = {
             'model_type': self.model_selector.value,
             'sequence_length': self.sequence_length.value,
@@ -128,18 +131,18 @@ class RealJetXTrainingInterface:
         
         with self.output_area:
             clear_output()
-            print(f"🚀 Rolling Window Training başlatılıyor: {config['model_type']}")
-            print(f"📊 Chunk sayısı: {len(self.rolling_chunks)}")
-            print(f"📊 Chunk boyutu: {config['chunk_size']}")
+            print(f"🚀 Starting Rolling Window Training: {config['model_type']}")
+            print(f"📊 Number of chunks: {len(self.rolling_chunks)}")
+            print(f"📊 Chunk size: {config['chunk_size']}")
             print(f"📊 Sequence length: {config['sequence_length']}")
             print(f"📊 Epochs per cycle: {config['epochs']}")
             print("=" * 50)
             
-            # Rolling trainer'ı başlat
+            # Start rolling trainer
             self.execute_rolling_training(config)
     
     def execute_rolling_training(self, config):
-        """Rolling training'i yürüt"""
+        """Execute rolling training"""
         try:
             # Import rolling training system
             from rolling_training_system import RollingWindowTrainer
@@ -170,7 +173,7 @@ class RealJetXTrainingInterface:
             
         except Exception as e:
             with self.output_area:
-                print(f"❌ Rolling training hatası: {e}")
+                print(f"❌ Rolling training error: {e}")
                 traceback.print_exc()
         finally:
             self.train_button.disabled = False

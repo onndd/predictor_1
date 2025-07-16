@@ -17,7 +17,7 @@ class OptimizedEnsemble:
     - Robust error handling
     """
     
-    def __init__(self, models=None, threshold=1.5, performance_window=100):
+    def __init__(self, models=None, threshold=1.5, performance_window=100, max_model_errors: int = 5):
         """
         Initialize optimized ensemble
         
@@ -25,10 +25,12 @@ class OptimizedEnsemble:
             models: Dictionary of model instances
             threshold: Decision threshold
             performance_window: Window size for performance tracking
+            max_model_errors: Number of errors before deactivating a model
         """
         self.models = models or {}
         self.threshold = threshold
         self.performance_window = performance_window
+        self.max_model_errors = max_model_errors
         
         # Optimized weight system
         self.weights = {}
@@ -155,12 +157,12 @@ class OptimizedEnsemble:
                 result = self._safe_model_predict(model, sequence)
                 
                 if result is not None:
-                    predicted_value, above_prob, confidence = result
+                    indicative_value, above_prob, confidence = result
                     
                     # Validate prediction
-                    if self._validate_prediction(predicted_value, above_prob, confidence):
+                    if self._validate_prediction(indicative_value, above_prob, confidence):
                         model_predictions[model_name] = {
-                            'value': predicted_value,
+                            'value': indicative_value,
                             'probability': above_prob,
                             'confidence': confidence,
                             'weight': self.weights[model_name]
@@ -198,10 +200,10 @@ class OptimizedEnsemble:
             print(f"Model prediction error for {model.__class__.__name__}: {e}")
             return None
 
-    def _validate_prediction(self, value, probability, confidence):
+    def _validate_prediction(self, indicative_value, probability, confidence):
         """Validate prediction values"""
         # Check for NaN or inf
-        if any(math.isnan(x) or math.isinf(x) for x in [value or 0, probability, confidence]):
+        if any(math.isnan(x) or math.isinf(x) for x in [indicative_value or 0, probability, confidence]):
             return False
             
         # Check probability bounds
@@ -213,7 +215,7 @@ class OptimizedEnsemble:
             return False
             
         # Check value reasonableness
-        if value is not None and (value < 0 or value > 1000):
+        if indicative_value is not None and (indicative_value < 0 or indicative_value > 1000):
             return False
             
         return True
@@ -224,14 +226,14 @@ class OptimizedEnsemble:
             return None, 0.5, 0.0
         
         # Separate values and probabilities
-        values = []
+        indicative_values = []
         probabilities = []
         confidences = []
         weights = []
         
         for model_name, pred in model_predictions.items():
             if pred['value'] is not None:
-                values.append(pred['value'])
+                indicative_values.append(pred['value'])
                 probabilities.append(pred['probability'])
                 confidences.append(pred['confidence'])
                 
@@ -240,7 +242,7 @@ class OptimizedEnsemble:
                 adjusted_weight = pred['weight'] * pred['confidence'] * model_perf
                 weights.append(adjusted_weight)
         
-        if not values:
+        if not indicative_values:
             return None, 0.5, 0.0
         
         # Normalize weights
@@ -248,10 +250,10 @@ class OptimizedEnsemble:
         if total_weight > 0:
             weights = [w / total_weight for w in weights]
         else:
-            weights = [1.0 / len(values)] * len(values)
+            weights = [1.0 / len(indicative_values)] * len(indicative_values)
         
         # Calculate weighted predictions
-        predicted_value = sum(v * w for v, w in zip(values, weights))
+        ensemble_indicative_value = sum(v * w for v, w in zip(indicative_values, weights))
         above_prob = sum(p * w for p, w in zip(probabilities, weights))
         
         # Calculate ensemble confidence
@@ -259,7 +261,7 @@ class OptimizedEnsemble:
             model_predictions, weights, above_prob
         )
         
-        return predicted_value, above_prob, ensemble_confidence
+        return ensemble_indicative_value, above_prob, ensemble_confidence
 
     def _calculate_ensemble_confidence(self, model_predictions, weights, above_prob):
         """Calculate ensemble confidence score"""
@@ -269,7 +271,7 @@ class OptimizedEnsemble:
         # Agreement factor (how much models agree)
         probabilities = [pred['probability'] for pred in model_predictions.values()]
         prob_std = np.std(probabilities) if len(probabilities) > 1 else 0.0
-        agreement_factor = max(0.0, 1.0 - prob_std * 2)
+        agreement_factor = max(0.0, float(1.0 - prob_std * 2))
         
         # Confidence factor (average model confidence)
         confidences = [pred['confidence'] for pred in model_predictions.values()]
@@ -359,9 +361,6 @@ class OptimizedEnsemble:
         """Update model weights based on performance"""
         actual_above = actual_value >= self.threshold
         
-        # Learning rate based on recent performance
-        learning_rate = 0.1
-        
         for model_name in last_prediction['models']:
             model_pred = last_prediction['models'][model_name]
             predicted_above = model_pred['probability'] > 0.5
@@ -370,14 +369,22 @@ class OptimizedEnsemble:
             # Get current performance
             current_accuracy = self.performance_tracker[model_name]['accuracy']
             
+            # Adaptive learning rate
+            if is_correct:
+                # Lower learning rate for already good models to avoid overfitting weights
+                adaptive_lr = 0.05 * (1.0 - current_accuracy)
+            else:
+                # Higher learning rate for poor models to correct them faster
+                adaptive_lr = 0.1 * (1.0 - current_accuracy)
+
             # Weight adjustment
             if is_correct:
                 # Reward correct predictions
-                reward = learning_rate * current_accuracy
+                reward = adaptive_lr
                 self.weights[model_name] += reward
             else:
                 # Penalize incorrect predictions
-                penalty = learning_rate * (1 - current_accuracy)
+                penalty = adaptive_lr
                 self.weights[model_name] -= penalty
             
             # Keep weights positive
@@ -415,7 +422,7 @@ class OptimizedEnsemble:
         self.model_stats[model_name]['last_error'] = str(error)
         
         # Deactivate model after too many errors
-        if self.model_stats[model_name]['error_count'] >= 5:
+        if self.model_stats[model_name]['error_count'] >= self.max_model_errors:
             self.model_stats[model_name]['active'] = False
             print(f"Model {model_name} deactivated due to repeated errors")
 
