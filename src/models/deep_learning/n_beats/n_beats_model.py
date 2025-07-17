@@ -81,7 +81,8 @@ class NBeatsBlock(nn.Module):
         # Create time indices on the same device as input
         device = x.device
         backcast_indices = torch.arange(self.input_size, dtype=torch.float32, device=device) / self.input_size
-        forecast_indices = torch.arange(self.input_size, 2 * self.input_size, dtype=torch.float32, device=device) / self.input_size
+        # FIX: forecast_indices should only be forecast_size length (1), not input_size
+        forecast_indices = torch.arange(1, dtype=torch.float32, device=device)
         
         # Generate backcast and forecast
         backcast = self.basis(theta, backcast_indices)
@@ -136,28 +137,38 @@ class JetXNBeatsBlock(nn.Module):
                 self.basis = self._jetx_trend_basis
     
     def _jetx_crash_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        """JetX crash pattern basis function"""
+        """JetX crash pattern basis function with numerical stability"""
         # Exponential decay pattern typical of JetX crashes
         crash_patterns = []
         for i in range(self.theta_size):
-            decay_rate = 0.5 + i * 0.1
-            pattern = torch.exp(-decay_rate * x)
+            decay_rate = 0.3 + i * 0.05  # Reduced for stability
+            # Clamp input to prevent overflow
+            clamped_input = torch.clamp(-decay_rate * x, min=-10, max=10)
+            pattern = torch.exp(clamped_input)
             crash_patterns.append(pattern)
         
         basis = torch.stack(crash_patterns, dim=-1)
-        return torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        # Add numerical stability
+        result = torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        # Clamp output to prevent NaN/Inf
+        return torch.clamp(result, min=-1e6, max=1e6)
     
     def _jetx_pump_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        """JetX pump pattern basis function"""
+        """JetX pump pattern basis function with numerical stability"""
         # Exponential growth pattern typical of JetX pumps
         pump_patterns = []
         for i in range(self.theta_size):
-            growth_rate = 0.2 + i * 0.05
-            pattern = torch.exp(growth_rate * x)
+            growth_rate = 0.1 + i * 0.02  # Reduced for stability
+            # Clamp input to prevent overflow
+            clamped_input = torch.clamp(growth_rate * x, min=-10, max=10)
+            pattern = torch.exp(clamped_input)
             pump_patterns.append(pattern)
         
         basis = torch.stack(pump_patterns, dim=-1)
-        return torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        # Add numerical stability
+        result = torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        # Clamp output to prevent NaN/Inf
+        return torch.clamp(result, min=-1e6, max=1e6)
     
     def _jetx_trend_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """JetX trend basis function optimized for 1.5 threshold"""
@@ -204,7 +215,8 @@ class JetXNBeatsBlock(nn.Module):
         # Create time indices on the same device as input
         device = x.device
         backcast_indices = torch.arange(self.input_size, dtype=torch.float32, device=device) / self.input_size
-        forecast_indices = torch.arange(self.input_size, 2 * self.input_size, dtype=torch.float32, device=device) / self.input_size
+        # FIX: forecast_indices should only be forecast_size length (1), not input_size
+        forecast_indices = torch.arange(1, dtype=torch.float32, device=device)
         
         # Generate backcast and forecast
         backcast = self.basis(theta, backcast_indices)
@@ -236,7 +248,8 @@ class JetXNBeatsStack(nn.Module):
             Tuple of (backcast, forecast)
         """
         backcast = x
-        forecast = torch.zeros_like(x)
+        # FIX: forecast should be (batch_size, forecast_size) not (batch_size, input_size)
+        forecast = torch.zeros(x.size(0), 1, device=x.device, dtype=x.dtype)
         
         for block in self.blocks:
             block_backcast, block_forecast = block(backcast)
@@ -529,7 +542,19 @@ class NBeatsPredictor:
         
         # Use the custom JetXThresholdLoss
         self.criterion = JetXThresholdLoss(threshold=threshold, crash_weight=crash_weight)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), 
+            lr=learning_rate,
+            weight_decay=0.01,  # L2 regularization
+            eps=1e-8
+        )
+        
+        # Learning rate scheduler with cosine annealing
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, 
+            T_max=100,  # Will be updated in train method
+            eta_min=1e-6
+        )
         
         # Training state
         self.is_trained = False
@@ -598,9 +623,18 @@ class NBeatsPredictor:
         X_train, X_val = X[:split_idx], X[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
         
+        # Update scheduler T_max
+        self.scheduler.T_max = epochs
+        
+        # Early stopping parameters
+        best_val_loss = float('inf')
+        patience_counter = 0
+        patience = 15
+        
         # Training loop
         train_losses = []
         val_losses = []
+        learning_rates = []
         
         for epoch in range(epochs):
             # Training
@@ -616,6 +650,10 @@ class NBeatsPredictor:
                 predictions = self.model(batch_X) # Returns a dict
                 loss = self.criterion(predictions, batch_y)
                 loss.backward()
+                
+                # Gradient clipping for stability
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                
                 self.optimizer.step()
                 
                 total_train_loss += loss.item()
@@ -629,11 +667,28 @@ class NBeatsPredictor:
                 val_predictions = self.model(X_val) # Returns a dict
                 val_loss = self.criterion(val_predictions, y_val).item()
             
+            # Update learning rate
+            self.scheduler.step()
+            current_lr = self.optimizer.param_groups[0]['lr']
+            
             train_losses.append(avg_train_loss)
             val_losses.append(val_loss)
+            learning_rates.append(current_lr)
+            
+            # Early stopping
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= patience:
+                if verbose:
+                    print(f"Early stopping at epoch {epoch + 1}")
+                break
             
             if verbose and (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch + 1}/{epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {val_loss:.6f}")
+                print(f"Epoch {epoch + 1}/{epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {val_loss:.6f} - LR: {current_lr:.2e}")
         
         self.is_trained = True
         self.training_history = {

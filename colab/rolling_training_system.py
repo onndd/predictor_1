@@ -56,7 +56,7 @@ class RollingWindowTrainer:
         return sequences, targets
     
     def train_nbeats_model(self, train_data, config, progress_callback=None):
-        """Train N-Beats model"""
+        """Train N-Beats model with enhanced parameter support"""
         try:
             # Import N-Beats model - fixed path for colab
             import sys
@@ -65,15 +65,19 @@ class RollingWindowTrainer:
             
             print(f"🔧 N-Beats: Creating model with sequence_length={config['sequence_length']}")
             print(f"🔧 N-Beats: Training data size: {len(train_data)}")
+            print(f"🔧 N-Beats: Hidden size: {config.get('hidden_size', 256)}")
+            print(f"🔧 N-Beats: Num stacks: {config.get('num_stacks', 3)}")
+            print(f"🔧 N-Beats: Num blocks: {config.get('num_blocks', 3)}")
             
-            # Create model
+            # Create model with all parameters from config
             model = NBeatsPredictor(
                 sequence_length=config['sequence_length'],
                 hidden_size=config.get('hidden_size', 256),
                 num_stacks=config.get('num_stacks', 3),
                 num_blocks=config.get('num_blocks', 3),
                 learning_rate=config['learning_rate'],
-                threshold=1.5
+                threshold=config.get('threshold', 1.5),
+                crash_weight=config.get('crash_weight', 2.0)
             )
             
             # Train model
@@ -81,8 +85,8 @@ class RollingWindowTrainer:
                 data=train_data,
                 epochs=config['epochs'],
                 batch_size=config['batch_size'],
-                validation_split=0.2,
-                verbose=True
+                validation_split=config.get('validation_split', 0.2),
+                verbose=config.get('verbose', True)
             )
             
             return model, history
@@ -93,21 +97,65 @@ class RollingWindowTrainer:
             return None, None
     
     def train_tft_model(self, train_data, config, progress_callback=None):
-        """Train TFT model"""
+        """Train Enhanced TFT model with advanced features"""
         try:
-            # Import TFT model - fixed path for colab
+            # Import Enhanced TFT model - fixed path for colab
             import sys
             sys.path.append('/content/predictor_1/src')
-            from models.deep_learning.tft.tft_model import TFTPredictor
+            from models.deep_learning.tft.enhanced_tft_model import EnhancedTFTPredictor
             
-            print(f"🔧 TFT: Creating model with sequence_length={config['sequence_length']}")
-            print(f"🔧 TFT: Training data size: {len(train_data)}")
+            print(f"🔧 Enhanced TFT: Creating model with sequence_length={config['sequence_length']}")
+            print(f"🔧 Enhanced TFT: Training data size: {len(train_data)}")
+            print(f"🔧 Enhanced TFT: Hidden size: {config.get('hidden_size', 256)}")
+            print(f"🔧 Enhanced TFT: Num heads: {config.get('num_heads', 8)}")
+            print(f"🔧 Enhanced TFT: Num layers: {config.get('num_layers', 2)}")
             
-            # Create model
-            model = TFTPredictor(
+            # Create enhanced model with all parameters from config
+            model = EnhancedTFTPredictor(
                 sequence_length=config['sequence_length'],
                 hidden_size=config.get('hidden_size', 256),
                 num_heads=config.get('num_heads', 8),
+                num_layers=config.get('num_layers', 2),
+                learning_rate=config['learning_rate'],
+                threshold=config.get('threshold', 1.5)
+            )
+            
+            # Train model
+            history = model.train(
+                data=train_data,
+                epochs=config['epochs'],
+                batch_size=config['batch_size'],
+                validation_split=config.get('validation_split', 0.2),
+                verbose=config.get('verbose', True)
+            )
+            
+            return model, history
+            
+        except Exception as e:
+            print(f"❌ Enhanced TFT training error: {e}")
+            traceback.print_exc()  # Detaylı hata kaydı
+            return None, None
+    
+    def train_lstm_model(self, train_data, config, progress_callback=None):
+        """Train Enhanced LSTM model with PyTorch backend"""
+        try:
+            # Import Enhanced LSTM model - fixed path for colab
+            import sys
+            sys.path.append('/content/predictor_1/src')
+            from models.sequential.enhanced_lstm_pytorch import EnhancedLSTMPredictor
+            
+            print(f"🔧 Enhanced LSTM: Creating model with sequence_length={config['sequence_length']}")
+            print(f"🔧 Enhanced LSTM: Training data size: {len(train_data)}")
+            print(f"🔧 Enhanced LSTM: Hidden size: {config.get('hidden_size', 128)}")
+            print(f"🔧 Enhanced LSTM: Num layers: {config.get('num_layers', 2)}")
+            print(f"🔧 Enhanced LSTM: Threshold: {config.get('threshold', 1.5)}")
+            
+            # Create enhanced model with all parameters from config
+            model = EnhancedLSTMPredictor(
+                seq_length=config['sequence_length'],
+                n_features=1,
+                threshold=config.get('threshold', 1.5),
+                hidden_size=config.get('hidden_size', 128),
                 num_layers=config.get('num_layers', 2),
                 learning_rate=config['learning_rate']
             )
@@ -117,48 +165,14 @@ class RollingWindowTrainer:
                 data=train_data,
                 epochs=config['epochs'],
                 batch_size=config['batch_size'],
-                validation_split=0.2,
-                verbose=True
+                validation_split=config.get('validation_split', 0.2),
+                verbose=config.get('verbose', True)
             )
             
             return model, history
             
         except Exception as e:
-            print(f"❌ TFT training error: {e}")
-            traceback.print_exc()  # Detaylı hata kaydı
-            return None, None
-    
-    def train_lstm_model(self, train_data, config, progress_callback=None):
-        """Train LSTM model"""
-        try:
-            # Import LSTM model - fixed path for colab
-            import sys
-            sys.path.append('/content/predictor_1/src')
-            from models.sequential.lstm_model import LSTMModel
-            
-            print(f"🔧 LSTM: Creating model with sequence_length={config['sequence_length']}")
-            print(f"🔧 LSTM: Training data size: {len(train_data)}")
-            
-            # Create model - use seq_length instead of sequence_length for LSTM
-            model = LSTMModel(
-                seq_length=config['sequence_length'],
-                n_features=1,
-                threshold=1.5
-            )
-            
-            # Train model
-            history = model.train(
-                data=train_data,
-                epochs=config['epochs'],
-                batch_size=config['batch_size'],
-                validation_split=0.2,
-                verbose=True
-            )
-            
-            return model, history
-            
-        except Exception as e:
-            print(f"❌ LSTM training error: {e}")
+            print(f"❌ Enhanced LSTM training error: {e}")
             traceback.print_exc()  # Detaylı hata kaydı
             return None, None
     
