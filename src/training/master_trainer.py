@@ -82,10 +82,13 @@ class MasterTrainer:
                 if space['type'] == 'categorical':
                     trial_profile[param] = trial.suggest_categorical(param, space['choices'])
                 elif space['type'] == 'float':
+                    low_val = float(space['low'])
+                    high_val = float(space['high'])
+                    print(f"  [HPO DEBUG] Param: {param}, Low: {low_val}, High: {high_val}, Type Low: {type(low_val)}, Type High: {type(high_val)}")
                     trial_profile[param] = trial.suggest_float(
                         param,
-                        float(space['low']),
-                        float(space['high']),
+                        low_val,
+                        high_val,
                         log=space.get('log', False)
                     )
                 elif space['type'] == 'int':
