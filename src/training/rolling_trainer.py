@@ -150,7 +150,8 @@ class RollingTrainer:
         print(f"🚀 Starting rolling training for {self.model_type}...")
         
         cycle_results = []
-        for cycle in range(len(self.chunks) - 1):
+        # Wrap the main loop with tqdm for a cycle progress bar
+        for cycle in tqdm(range(len(self.chunks) - 1), desc=f"Rolling Training: {self.model_type}"):
             print(f"\n🔄 Cycle {cycle + 1}/{len(self.chunks) - 1}")
             
             train_data = [item for sublist in self.chunks[:cycle + 1] for item in sublist]
@@ -163,7 +164,12 @@ class RollingTrainer:
                 model = self._get_model_instance()
                 # The model instance is now created with the device parameter,
                 # and its internal methods will handle moving data to the device.
-                model.train(data=train_data, **self.config.get('train_params', {}))
+                
+                # Pass the tqdm description to the train method
+                train_params = self.config.get('train_params', {})
+                train_params['tqdm_desc'] = f"Cycle {cycle + 1}"
+                
+                model.train(data=train_data, **train_params)
                 
                 performance = self._test_model(model, test_data)
                 if not performance:

@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional, Dict
 from .tft_model import *
+from tqdm.notebook import tqdm
 
 class JetXTFTModel(nn.Module):
     """
@@ -162,8 +163,8 @@ class EnhancedTFTPredictor:
         
         return sequences_tensor, targets_tensor
     
-    def train(self, data: List[float], epochs: int = 100, batch_size: int = 32, 
-              validation_split: float = 0.2, verbose: bool = True) -> dict:
+    def train(self, data: List[float], epochs: int = 100, batch_size: int = 32,
+              validation_split: float = 0.2, verbose: bool = True, tqdm_desc: str = "Training") -> dict:
         """
         Train the enhanced TFT model
         """
@@ -187,7 +188,8 @@ class EnhancedTFTPredictor:
         train_losses = []
         val_losses = []
         
-        for epoch in range(epochs):
+        epoch_iterator = tqdm(range(epochs), desc=tqdm_desc, leave=False)
+        for epoch in epoch_iterator:
             # Training
             self.model.train()
             total_train_loss = 0
@@ -220,10 +222,12 @@ class EnhancedTFTPredictor:
             
             # Update learning rate
             self.scheduler.step()
-            current_lr = self.optimizer.param_groups[0]['lr']
             
             train_losses.append(avg_train_loss)
             val_losses.append(val_loss)
+            
+            # Update tqdm description
+            epoch_iterator.set_description(f"{tqdm_desc} | Epoch {epoch+1}/{epochs} | Val Loss: {val_loss:.4f}")
             
             # Early stopping
             if val_loss < best_val_loss:
@@ -234,11 +238,8 @@ class EnhancedTFTPredictor:
                 
             if patience_counter >= patience:
                 if verbose:
-                    print(f"Early stopping at epoch {epoch + 1}")
+                    print(f"\nEarly stopping at epoch {epoch + 1}")
                 break
-            
-            if verbose and (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch + 1}/{epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {val_loss:.6f} - LR: {current_lr:.2e}")
         
         self.is_trained = True
         self.training_history = {

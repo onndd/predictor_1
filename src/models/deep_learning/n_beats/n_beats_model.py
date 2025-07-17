@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional
+from tqdm.notebook import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -702,8 +703,8 @@ class NBeatsPredictor:
         
         return sequences_tensor, targets_tensor
     
-    def train(self, data: List[float], epochs: int = 100, batch_size: int = 32, 
-              validation_split: float = 0.2, verbose: bool = True) -> dict:
+    def train(self, data: List[float], epochs: int = 100, batch_size: int = 32,
+              validation_split: float = 0.2, verbose: bool = True, tqdm_desc: str = "Training") -> dict:
         """
         Train the N-BEATS model
         
@@ -713,6 +714,7 @@ class NBeatsPredictor:
             batch_size: Batch size for training
             validation_split: Fraction of data to use for validation
             verbose: Whether to print training progress
+            tqdm_desc: Description for the tqdm progress bar.
             
         Returns:
             Training history
@@ -738,7 +740,9 @@ class NBeatsPredictor:
         val_losses = []
         learning_rates = []
         
-        for epoch in range(epochs):
+        # Training loop with tqdm
+        epoch_iterator = tqdm(range(epochs), desc=tqdm_desc, leave=False)
+        for epoch in epoch_iterator:
             # Training
             self.model.train()
             total_train_loss = 0
@@ -777,6 +781,9 @@ class NBeatsPredictor:
             val_losses.append(val_loss)
             learning_rates.append(current_lr)
             
+            # Update tqdm description
+            epoch_iterator.set_description(f"{tqdm_desc} | Epoch {epoch+1}/{epochs} | Val Loss: {val_loss:.4f}")
+            
             # Early stopping
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -786,11 +793,8 @@ class NBeatsPredictor:
                 
             if patience_counter >= patience:
                 if verbose:
-                    print(f"Early stopping at epoch {epoch + 1}")
+                    print(f"\nEarly stopping at epoch {epoch + 1}")
                 break
-            
-            if verbose and (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch + 1}/{epochs} - Train Loss: {avg_train_loss:.6f} - Val Loss: {val_loss:.6f} - LR: {current_lr:.2e}")
         
         self.is_trained = True
         self.training_history = {

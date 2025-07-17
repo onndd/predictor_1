@@ -385,7 +385,18 @@ class VariableSelectionNetwork(nn.Module):
         sparse_weights = self.dropout(sparse_weights)
         
         # Apply variable selection
-        processed_inputs = torch.sum(transformed_inputs * sparse_weights.unsqueeze(1), dim=-1)
+        # The dimension of sparse_weights is (batch_size, num_inputs),
+        # but transformed_inputs is (batch_size, seq_len, num_inputs, hidden_size).
+        # We need to align dimensions for broadcasting.
+        # sparse_weights: [batch_size, num_inputs] -> [batch_size, 1, num_inputs, 1]
+        # transformed_inputs: [batch_size, seq_len, num_inputs, hidden_size]
+        # The multiplication should be on the num_inputs dimension.
+        
+        # Reshape sparse_weights for proper broadcasting
+        weights = sparse_weights.unsqueeze(1).unsqueeze(-1)  # Shape: [batch_size, 1, num_inputs, 1]
+        
+        # Multiply transformed_inputs by weights and sum along the num_inputs dimension
+        processed_inputs = torch.sum(transformed_inputs * weights, dim=2) # Shape: [batch_size, seq_len, hidden_size]
         
         return processed_inputs
 

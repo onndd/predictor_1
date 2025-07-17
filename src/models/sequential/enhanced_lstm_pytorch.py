@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import List, Tuple, Optional, Dict
+from tqdm.notebook import tqdm
 
 class JetXLSTMModel(nn.Module):
     """
@@ -202,7 +203,7 @@ class EnhancedLSTMPredictor:
         
         return X, y
     
-    def train(self, data, epochs=100, batch_size=32, validation_split=0.2, verbose=True):
+    def train(self, data, epochs=100, batch_size=32, validation_split=0.2, verbose=True, tqdm_desc="Training"):
         """Train the model"""
         # Prepare data
         X, y = self.prepare_sequences(data)
@@ -219,7 +220,8 @@ class EnhancedLSTMPredictor:
         train_losses = []
         val_losses = []
         
-        for epoch in range(epochs):
+        epoch_iterator = tqdm(range(epochs), desc=tqdm_desc, leave=False)
+        for epoch in epoch_iterator:
             # Training
             self.model.train()
             total_train_loss = 0
@@ -254,9 +256,8 @@ class EnhancedLSTMPredictor:
             train_losses.append(total_train_loss / num_batches)
             val_losses.append(val_loss)
             
-            if verbose and (epoch + 1) % 10 == 0:
-                lr = self.optimizer.param_groups[0]['lr']
-                print(f"Epoch {epoch + 1}/{epochs} - Train Loss: {train_losses[-1]:.6f} - Val Loss: {val_loss:.6f} - LR: {lr:.2e}")
+            # Update tqdm description
+            epoch_iterator.set_description(f"{tqdm_desc} | Epoch {epoch+1}/{epochs} | Val Loss: {val_loss:.4f}")
         
         self.is_trained = True
         return {'train_losses': train_losses, 'val_losses': val_losses}
