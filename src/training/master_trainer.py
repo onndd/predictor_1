@@ -82,7 +82,12 @@ class MasterTrainer:
                 if space['type'] == 'categorical':
                     trial_profile[param] = trial.suggest_categorical(param, space['choices'])
                 elif space['type'] == 'float':
-                    trial_profile[param] = trial.suggest_float(param, space['low'], space['high'], log=space.get('log', False))
+                    trial_profile[param] = trial.suggest_float(
+                        param,
+                        float(space['low']),
+                        float(space['high']),
+                        log=space.get('log', False)
+                    )
                 elif space['type'] == 'int':
                     trial_profile[param] = trial.suggest_int(param, space['low'], space['high'])
             
