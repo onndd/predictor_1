@@ -259,19 +259,25 @@ class ModernLSTMModel:
 
     def prepare_sequences(self, data):
         """
-        Eğitim dizilerini hazırlar - Enhanced version
+        Eğitim dizilerini hazırlar - Enhanced version with tuple handling
         
         Args:
-            data: Veri dizisi
+            data: Veri dizisi (can be floats or (id, value) tuples)
             
         Returns:
             tuple: X (girdi dizileri) ve y (hedef değerler)
         """
+        # Handle tuple data
+        if data and isinstance(data[0], (tuple, list)):
+            processed_data = [float(item[1]) for item in data]
+        else:
+            processed_data = [float(item) for item in data]
+        
         X, y = [], []
         
-        for i in range(len(data) - self.seq_length):
+        for i in range(len(processed_data) - self.seq_length):
             # Dizi
-            seq = data[i:i+self.seq_length]
+            seq = processed_data[i:i+self.seq_length]
             
             # Enhanced features
             if self.multi_output:
@@ -281,7 +287,7 @@ class ModernLSTMModel:
                 X.append(np.array(seq).reshape(-1, 1))
             
             # Sonraki değer
-            next_val = data[i+self.seq_length]
+            next_val = processed_data[i+self.seq_length]
             
             if self.multi_output:
                 # Multi-output targets
@@ -316,6 +322,9 @@ class ModernLSTMModel:
             }
         else:
             y = np.array(y)
+        
+        print(f"🔧 LSTM: Prepared sequences shape: {X.shape}")
+        print(f"🔧 LSTM: Prepared targets type: {type(y)}")
         
         return X, y
 
@@ -425,6 +434,33 @@ class ModernLSTMModel:
                 above_threshold = pred_value >= self.threshold
                 return pred_value, 1.0 if above_threshold else 0.0, 0.5
 
+    def predict_with_confidence(self, sequence):
+        """
+        Make a prediction with confidence metrics - required for rolling training system
+        
+        Args:
+            sequence: Input sequence
+            
+        Returns:
+            tuple: (predicted_value, above_threshold_probability, confidence_score)
+        """
+        try:
+            if self.multi_output:
+                value_pred, prob_pred, conf_pred, crash_risk = self.predict_next(sequence)
+                return float(value_pred), float(prob_pred), float(conf_pred)
+            else:
+                result = self.predict_next(sequence)
+                if len(result) == 3:
+                    return result
+                else:
+                    # Handle different return formats
+                    if result[0] is not None:
+                        return float(result[0]), float(result[1]), float(result[2])
+                    else:
+                        return 1.5, float(result[1]), 0.5
+        except Exception as e:
+            raise RuntimeError(f"LSTM prediction failed: {str(e)}")
+    
     def predict_next_value(self, sequence):
         """
         Compatibility method for ensemble systems
@@ -435,11 +471,41 @@ class ModernLSTMModel:
         Returns:
             tuple: (predicted_value, above_threshold_probability, confidence)
         """
-        if self.multi_output:
-            value_pred, prob_pred, conf_pred, crash_risk = self.predict_next(sequence)
-            return value_pred, prob_pred, conf_pred
-        else:
-            return self.predict_next(sequence)
+        return self.predict_with_confidence(sequence)
+    
+    def train(self, data, epochs=100, batch_size=32, validation_split=0.2, verbose=True):
+        """
+        Train the LSTM model - compatibility method for rolling training system
+        
+        Args:
+            data: Training data
+            epochs: Number of training epochs
+            batch_size: Batch size for training
+            validation_split: Fraction of data to use for validation
+            verbose: Whether to print training progress
+            
+        Returns:
+            Training history
+        """
+        # Build model if not already built
+        if self.model is None:
+            self.build_model()
+        
+        # Prepare data
+        X, y = self.prepare_sequences(data)
+        
+        # Train model
+        history = self.fit(X, y, epochs, batch_size, validation_split, verbose)
+        
+        return {'train_losses': history.history.get('loss', []), 'val_losses': history.history.get('val_loss', [])}
+    
+    def save_model(self, filepath):
+        """Save the trained model - compatibility method"""
+        self.save(filepath)
+    
+    def load_model(self, filepath):
+        """Load a trained model - compatibility method"""
+        self.load(filepath)
 
     def evaluate(self, X, y):
         """

@@ -409,7 +409,7 @@ class InterpretableMultiHeadAttention(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(dropout)
         
-    def scaled_dot_product_attention(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def scaled_dot_product_attention(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Scaled dot-product attention
         """
@@ -643,25 +643,42 @@ class TFTPredictor:
         
     def prepare_sequences(self, data: List[float]) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Prepare sequences for training
+        Prepare sequences for training, handling both lists of floats and lists of tuples.
         
         Args:
-            data: List of time series values
+            data: List of time series values, can be floats or (id, value) tuples.
             
         Returns:
             Tuple of (sequences, targets)
         """
+        # Check if the data is a list of tuples and extract the second element if so.
+        processed_data = []
+        if data and len(data) > 0:
+            first_item = data[0]
+            if isinstance(first_item, (tuple, list)) and len(first_item) > 1:
+                processed_data = [float(item[1]) for item in data if isinstance(item, (tuple, list)) and len(item) > 1]
+            else:
+                processed_data = [float(item) for item in data]
+        else:
+            processed_data = []
+        
         sequences = []
         targets = []
         
-        for i in range(len(data) - self.sequence_length):
-            seq = data[i:i + self.sequence_length]
-            target = data[i + self.sequence_length]
+        for i in range(len(processed_data) - self.sequence_length):
+            seq = processed_data[i:i + self.sequence_length]
+            target = processed_data[i + self.sequence_length]
             
             sequences.append(seq)
             targets.append(target)
         
-        return torch.tensor(sequences, dtype=torch.float32).unsqueeze(-1), torch.tensor(targets, dtype=torch.float32)
+        sequences_tensor = torch.tensor(sequences, dtype=torch.float32).unsqueeze(-1)
+        targets_tensor = torch.tensor(targets, dtype=torch.float32)
+        
+        print(f"🔧 TFT: Prepared sequences shape: {sequences_tensor.shape}")
+        print(f"🔧 TFT: Prepared targets shape: {targets_tensor.shape}")
+        
+        return sequences_tensor, targets_tensor
     
     def train(self, data: List[float], epochs: int = 100, batch_size: int = 32, 
               validation_split: float = 0.2, verbose: bool = True) -> dict:
@@ -753,6 +770,45 @@ class TFTPredictor:
             prediction, _ = self.model(x)
         
         return prediction.item()
+    
+    def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
+        """
+        Make a prediction with confidence metrics - required for rolling training system
+        
+        Args:
+            sequence: Input sequence of length sequence_length
+            
+        Returns:
+            Tuple of (predicted_value, above_threshold_probability, confidence_score)
+        """
+        if not self.is_trained:
+            raise ValueError("Model must be trained before making predictions")
+        
+        if len(sequence) != self.sequence_length:
+            raise ValueError(f"Sequence must have length {self.sequence_length}")
+        
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+                prediction, attention_weights = self.model(x)
+                
+                value = prediction.item()
+                
+                # Calculate threshold probability (above 1.5)
+                threshold_prob = 1.0 if value >= 1.5 else 0.0
+                
+                # Simple confidence based on attention weights variance
+                if attention_weights:
+                    attention_var = torch.var(attention_weights[0]).item()
+                    confidence = 1.0 - min(attention_var, 1.0)  # Lower variance = higher confidence
+                else:
+                    confidence = 0.5
+                
+                return float(value), float(threshold_prob), float(confidence)
+                
+        except Exception as e:
+            raise RuntimeError(f"TFT prediction failed: {str(e)}")
     
     def predict_with_attention(self, sequence: List[float]) -> Tuple[float, torch.Tensor]:
         """

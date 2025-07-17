@@ -22,7 +22,7 @@ class RollingWindowTrainer:
     Rolling window training system for JetX models
     """
     
-    def __init__(self, chunks, chunk_size=1000, sequence_length=200):
+    def __init__(self, chunks, chunk_size=1000, sequence_length=300):
         self.chunks = chunks
         self.chunk_size = chunk_size
         self.sequence_length = sequence_length
@@ -32,10 +32,10 @@ class RollingWindowTrainer:
     def prepare_sequences(self, data, sequence_length):
         """Prepare sequences for training, handling both lists of floats and lists of tuples."""
         # Check if the data is a list of tuples and extract the second element if so.
-        if isinstance(data[0], tuple):
-            processed_data = [item[1] for item in data]
+        if data and isinstance(data[0], tuple):
+            processed_data = [float(item[1]) for item in data]
         else:
-            processed_data = data
+            processed_data = [float(item) for item in data]
 
         sequences = []
         targets = []
@@ -47,13 +47,24 @@ class RollingWindowTrainer:
             sequences.append(seq)
             targets.append(target)
         
-        return np.array(sequences), np.array(targets)
+        sequences = np.array(sequences, dtype=np.float32)
+        targets = np.array(targets, dtype=np.float32)
+        
+        print(f"📊 Prepared sequences shape: {sequences.shape}")
+        print(f"📊 Prepared targets shape: {targets.shape}")
+        
+        return sequences, targets
     
     def train_nbeats_model(self, train_data, config, progress_callback=None):
         """Train N-Beats model"""
         try:
-            # Import N-Beats model
+            # Import N-Beats model - fixed path for colab
+            import sys
+            sys.path.append('/content/predictor_1/src')
             from models.deep_learning.n_beats.n_beats_model import NBeatsPredictor
+            
+            print(f"🔧 N-Beats: Creating model with sequence_length={config['sequence_length']}")
+            print(f"🔧 N-Beats: Training data size: {len(train_data)}")
             
             # Create model
             model = NBeatsPredictor(
@@ -84,14 +95,19 @@ class RollingWindowTrainer:
     def train_tft_model(self, train_data, config, progress_callback=None):
         """Train TFT model"""
         try:
-            # Import TFT model
-            from models.deep_learning.tft.tft_model import TFTModel
+            # Import TFT model - fixed path for colab
+            import sys
+            sys.path.append('/content/predictor_1/src')
+            from models.deep_learning.tft.tft_model import TFTPredictor
+            
+            print(f"🔧 TFT: Creating model with sequence_length={config['sequence_length']}")
+            print(f"🔧 TFT: Training data size: {len(train_data)}")
             
             # Create model
-            model = TFTModel(
+            model = TFTPredictor(
                 sequence_length=config['sequence_length'],
-                hidden_size=config.get('hidden_size', 128),
-                num_heads=config.get('num_heads', 4),
+                hidden_size=config.get('hidden_size', 256),
+                num_heads=config.get('num_heads', 8),
                 num_layers=config.get('num_layers', 2),
                 learning_rate=config['learning_rate']
             )
@@ -115,15 +131,19 @@ class RollingWindowTrainer:
     def train_lstm_model(self, train_data, config, progress_callback=None):
         """Train LSTM model"""
         try:
-            # Import LSTM model
+            # Import LSTM model - fixed path for colab
+            import sys
+            sys.path.append('/content/predictor_1/src')
             from models.sequential.lstm_model import LSTMModel
             
-            # Create model
+            print(f"🔧 LSTM: Creating model with sequence_length={config['sequence_length']}")
+            print(f"🔧 LSTM: Training data size: {len(train_data)}")
+            
+            # Create model - use seq_length instead of sequence_length for LSTM
             model = LSTMModel(
-                sequence_length=config['sequence_length'],
-                lstm_units=config.get('lstm_units', 128),
-                dropout_rate=config.get('dropout_rate', 0.2),
-                learning_rate=config['learning_rate']
+                seq_length=config['sequence_length'],
+                n_features=1,
+                threshold=1.5
             )
             
             # Train model
@@ -153,11 +173,15 @@ class RollingWindowTrainer:
             
             # Test on sequences from test data
             for i in range(sequence_length, len(test_data)):
-                sequence = test_data[i-sequence_length:i]
-                actual = test_data[i]
+                raw_sequence = test_data[i-sequence_length:i]
+                raw_actual = test_data[i]
+
+                # Ensure sequence and actual are lists of floats
+                sequence = [item[1] if isinstance(item, tuple) else item for item in raw_sequence]
+                actual = raw_actual[1] if isinstance(raw_actual, tuple) else raw_actual
                 
                 # Get prediction
-                pred_value, pred_prob, pred_conf = model.predict_next_value(sequence)
+                pred_value, pred_prob, pred_conf = model.predict_with_confidence(sequence)
                 
                 predictions.append({
                     'value': pred_value,

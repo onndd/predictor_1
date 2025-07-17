@@ -19,6 +19,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Import our modules
 from src.models.advanced_model_manager import AdvancedModelManager
+from src.models.rolling_model_manager import RollingModelManager
 from src.data_processing.loader import load_data_from_sqlite, save_result_to_sqlite
 
 # Suppress warnings
@@ -37,9 +38,13 @@ class EnhancedJetXApp:
         # Initialize model manager
         self.model_manager = AdvancedModelManager(self.models_dir, self.db_path)
         
+        # Initialize rolling model manager
+        self.rolling_manager = RollingModelManager(self.models_dir, self.db_path)
+        
         # App state
         self.is_initialized = False
         self.current_data = []
+        self.rolling_models_loaded = False
         
     def initialize_app(self, auto_train_heavy=False):
         """Initialize the application"""
@@ -240,6 +245,57 @@ def main():
                 st.success("Models retrained!")
             else:
                 st.warning("Please initialize the app first")
+        
+        # Rolling Window Models Section
+        st.markdown("---")
+        st.header("🔄 Rolling Window Models")
+        st.caption("Models trained with Colab Rolling Training System")
+        
+        # Load rolling models
+        if st.button("🔍 Scan for Rolling Models"):
+            with st.spinner("Scanning for rolling models..."):
+                summary = app.rolling_manager.get_rolling_training_summary()
+                available = app.rolling_manager.get_available_rolling_models()
+                
+                if available:
+                    st.success(f"Found {len(available)} model types!")
+                    for model_type, models in available.items():
+                        st.write(f"• {model_type}: {len(models)} cycles")
+                else:
+                    st.info("No rolling models found. Train models using Colab interface first.")
+        
+        # Load best rolling models
+        if st.button("⚡ Load Best Rolling Models"):
+            with st.spinner("Loading best rolling models..."):
+                available = app.rolling_manager.get_available_rolling_models()
+                loaded_count = 0
+                
+                for model_type in available.keys():
+                    best_model = app.rolling_manager.get_best_rolling_model(model_type)
+                    if best_model:
+                        model = app.rolling_manager.load_rolling_model_for_prediction(best_model)
+                        if model:
+                            loaded_count += 1
+                
+                if loaded_count > 0:
+                    app.rolling_models_loaded = True
+                    st.success(f"Loaded {loaded_count} rolling models!")
+                else:
+                    st.warning("No rolling models could be loaded.")
+        
+        # Show rolling model status
+        if app.rolling_models_loaded:
+            st.subheader("Rolling Model Status")
+            for model_type, model_data in app.rolling_manager.rolling_models.items():
+                performance = model_data['info']['performance']
+                st.markdown(f"""
+                <div class="model-status model-ready">
+                    <strong>🔄 {model_type}</strong><br>
+                    MAE: {performance.get('mae', 'N/A'):.4f}<br>
+                    Accuracy: {performance.get('accuracy', 'N/A'):.2%}<br>
+                    Cycle: {model_data['info']['cycle']}
+                </div>
+                """, unsafe_allow_html=True)
     
     # Main content
     col1, col2 = st.columns([3, 2])
@@ -294,49 +350,121 @@ def main():
         st.subheader("Prediction")
         
         if app.is_initialized:
-            # Make prediction
-            if st.button("Make Prediction"):
-                with st.spinner("Making prediction..."):
-                    result = app.make_prediction()
-                
-                if result and result['ensemble_prediction'] is not None:
-                    prediction = result['ensemble_prediction']
-                    confidence = result['confidence']
-                    model_count = result['model_count']
+            # Prediction buttons
+            col_pred1, col_pred2 = st.columns(2)
+            
+            with col_pred1:
+                # Regular prediction
+                if st.button("🔮 Standard Prediction"):
+                    with st.spinner("Making prediction..."):
+                        result = app.make_prediction()
                     
-                    # Determine confidence class
-                    if confidence >= 0.7:
-                        conf_class = "high-confidence"
-                    elif confidence >= 0.5:
-                        conf_class = "medium-confidence"
+                    if result and result['ensemble_prediction'] is not None:
+                        prediction = result['ensemble_prediction']
+                        confidence = result['confidence']
+                        model_count = result['model_count']
+                        
+                        # Determine confidence class
+                        if confidence >= 0.7:
+                            conf_class = "high-confidence"
+                        elif confidence >= 0.5:
+                            conf_class = "medium-confidence"
+                        else:
+                            conf_class = "low-confidence"
+                        
+                        # Determine threshold class
+                        above_threshold = prediction >= 1.5
+                        threshold_class = "above-threshold" if above_threshold else "below-threshold"
+                        decision_text = "ABOVE 1.5" if above_threshold else "BELOW 1.5"
+                        
+                        # Display result
+                        st.markdown(f"""
+                        <div class="result-box {conf_class}">
+                            <h3 style="text-align: center;" class="{threshold_class}">{decision_text}</h3>
+                            <p><b>Predicted Value:</b> {prediction:.3f}</p>
+                            <p><b>Confidence:</b> {confidence:.2%}</p>
+                            <p><b>Models Used:</b> {model_count}</p>
+                            <p><b>Above 1.5 Probability:</b> {max(0, min(1, (prediction - 1.0) / 2.0)):.2%}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Show individual model predictions
+                        if result['predictions']:
+                            st.subheader("Individual Model Predictions")
+                            for model_name, pred in result['predictions'].items():
+                                st.write(f"{model_name.upper()}: {pred:.3f}")
                     else:
-                        conf_class = "low-confidence"
-                    
-                    # Determine threshold class
-                    above_threshold = prediction >= 1.5
-                    threshold_class = "above-threshold" if above_threshold else "below-threshold"
-                    decision_text = "ABOVE 1.5" if above_threshold else "BELOW 1.5"
-                    
-                    # Display result
-                    st.markdown(f"""
-                    <div class="result-box {conf_class}">
-                        <h3 style="text-align: center;" class="{threshold_class}">{decision_text}</h3>
-                        <p><b>Predicted Value:</b> {prediction:.3f}</p>
-                        <p><b>Confidence:</b> {confidence:.2%}</p>
-                        <p><b>Models Used:</b> {model_count}</p>
-                        <p><b>Above 1.5 Probability:</b> {max(0, min(1, (prediction - 1.0) / 2.0)):.2%}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Show individual model predictions
-                    if result['predictions']:
-                        st.subheader("Individual Model Predictions")
-                        for model_name, pred in result['predictions'].items():
-                            st.write(f"{model_name.upper()}: {pred:.3f}")
-                else:
-                    st.warning("Prediction failed. Make sure models are trained.")
+                        st.warning("Prediction failed. Make sure models are trained.")
+            
+            with col_pred2:
+                # Rolling window prediction
+                if st.button("🔄 Rolling Window Prediction"):
+                    if app.rolling_models_loaded:
+                        with st.spinner("Making rolling window prediction..."):
+                            result = app.rolling_manager.get_ensemble_rolling_prediction(app.current_data)
+                        
+                        if result and result['ensemble_value'] is not None:
+                            prediction = result['ensemble_value']
+                            confidence = result['ensemble_confidence']
+                            model_count = result['model_count']
+                            
+                            # Determine confidence class
+                            if confidence >= 0.7:
+                                conf_class = "high-confidence"
+                            elif confidence >= 0.5:
+                                conf_class = "medium-confidence"
+                            else:
+                                conf_class = "low-confidence"
+                            
+                            # Determine threshold class
+                            above_threshold = prediction >= 1.5
+                            threshold_class = "above-threshold" if above_threshold else "below-threshold"
+                            decision_text = "ABOVE 1.5" if above_threshold else "BELOW 1.5"
+                            
+                            # Display result
+                            st.markdown(f"""
+                            <div class="result-box {conf_class}">
+                                <h3 style="text-align: center;" class="{threshold_class}">🔄 {decision_text}</h3>
+                                <p><b>Rolling Predicted Value:</b> {prediction:.3f}</p>
+                                <p><b>Rolling Confidence:</b> {confidence:.2%}</p>
+                                <p><b>Rolling Models Used:</b> {model_count}</p>
+                                <p><b>Above 1.5 Probability:</b> {max(0, min(1, (prediction - 1.0) / 2.0)):.2%}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Show rolling individual model predictions
+                            if result['individual_predictions']:
+                                st.subheader("Rolling Model Predictions")
+                                for model_type, pred in result['individual_predictions'].items():
+                                    weight = result['weights'][model_type]
+                                    st.write(f"🔄 {model_type}: {pred['value']:.3f} (weight: {weight:.2f})")
+                        else:
+                            st.warning("Rolling prediction failed.")
+                    else:
+                        st.warning("Load rolling models first!")
         else:
             st.info("Please initialize the app first to make predictions.")
+        
+        # Show rolling training summary if available
+        if app.rolling_models_loaded:
+            st.markdown("---")
+            st.subheader("🔄 Rolling Training Summary")
+            summary = app.rolling_manager.get_rolling_training_summary()
+            
+            col_sum1, col_sum2, col_sum3 = st.columns(3)
+            with col_sum1:
+                st.metric("Training Sessions", summary['total_sessions'])
+            with col_sum2:
+                st.metric("Model Types", len(summary['model_types']))
+            with col_sum3:
+                best_mae = min([perf['mae'] for perf in summary['best_performances'].values()]) if summary['best_performances'] else 0
+                st.metric("Best MAE", f"{best_mae:.4f}")
+            
+            # Best performances
+            if summary['best_performances']:
+                st.write("**Best Performance by Model Type:**")
+                for model_type, perf in summary['best_performances'].items():
+                    st.write(f"• {model_type}: MAE={perf['mae']:.4f}, Accuracy={perf['accuracy']:.2%}")
     
     # Model performance section
     if app.is_initialized:

@@ -537,25 +537,43 @@ class NBeatsPredictor:
         
     def prepare_sequences(self, data: List[float]) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Prepare sequences for training
+        Prepare sequences for training, handling both lists of floats and lists of tuples.
         
         Args:
-            data: List of time series values
+            data: List of time series values, can be floats or (id, value) tuples.
             
         Returns:
             Tuple of (sequences, targets)
         """
+        # Check if the data is a list of tuples and extract the second element if so.
+        processed_data = []
+        if data and len(data) > 0:
+            first_item = data[0]
+            if isinstance(first_item, (tuple, list)) and len(first_item) > 1:
+                processed_data = [float(item[1]) for item in data if isinstance(item, (tuple, list)) and len(item) > 1]
+            else:
+                processed_data = [float(item) for item in data]
+        else:
+            processed_data = []
+
         sequences = []
         targets = []
         
-        for i in range(len(data) - self.sequence_length):
-            seq = data[i:i + self.sequence_length]
-            target = data[i + self.sequence_length]
+        for i in range(len(processed_data) - self.sequence_length):
+            seq = processed_data[i:i + self.sequence_length]
+            target = processed_data[i + self.sequence_length]
             
             sequences.append(seq)
             targets.append(target)
         
-        return torch.tensor(sequences, dtype=torch.float32), torch.tensor(targets, dtype=torch.float32)
+        # Convert to tensors with proper shapes
+        sequences_tensor = torch.tensor(sequences, dtype=torch.float32)
+        targets_tensor = torch.tensor(targets, dtype=torch.float32)
+        
+        print(f"🔧 N-Beats: Prepared sequences shape: {sequences_tensor.shape}")
+        print(f"🔧 N-Beats: Prepared targets shape: {targets_tensor.shape}")
+        
+        return sequences_tensor, targets_tensor
     
     def train(self, data: List[float], epochs: int = 100, batch_size: int = 32, 
               validation_split: float = 0.2, verbose: bool = True) -> dict:
