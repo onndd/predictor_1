@@ -329,6 +329,7 @@ class JetXNBeatsStack(nn.Module):
                  num_blocks: int = 3, hidden_size: int = 256, num_layers: int = 4, threshold: float = 1.5, forecast_size: int = 1):
         super(JetXNBeatsStack, self).__init__()
         
+        self.forecast_size = forecast_size
         self.blocks = nn.ModuleList([
             JetXNBeatsBlock(input_size, theta_size, basis_function, hidden_size, num_layers, threshold, forecast_size)
             for _ in range(num_blocks)
@@ -346,7 +347,7 @@ class JetXNBeatsStack(nn.Module):
         """
         backcast = x
         # FIX: forecast should be (batch_size, forecast_size) not (batch_size, input_size)
-        forecast = torch.zeros(x.size(0), 1, device=x.device, dtype=x.dtype)
+        forecast = torch.zeros(x.size(0), self.forecast_size, device=x.device, dtype=x.dtype)
         
         for block in self.blocks:
             block_backcast, block_forecast = block(backcast)
@@ -379,7 +380,10 @@ class NBeatsStack(nn.Module):
             Tuple of (backcast, forecast)
         """
         backcast = x
-        forecast = torch.zeros_like(x)
+        # FIX: The forecast should have forecast_size as its last dimension, not input_size.
+        # The forecast size for this block is implicitly 1.
+        # The forecast size for this block is implicitly 1.
+        forecast = torch.zeros(x.size(0), 1, device=x.device, dtype=x.dtype)
         
         for block in self.blocks:
             block_backcast, block_forecast = block(backcast)
