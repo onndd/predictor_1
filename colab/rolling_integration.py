@@ -145,7 +145,8 @@ class RealJetXTrainingInterface:
         """Execute rolling training"""
         try:
             # Import rolling training system
-            from rolling_training_system import RollingWindowTrainer
+            # The RollingWindowTrainer class is already available in the global scope
+            # of the notebook via exec(), so a direct import is not needed here.
             
             # Create trainer
             self.rolling_trainer = RollingWindowTrainer(
