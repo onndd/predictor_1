@@ -8,8 +8,35 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional
-from tqdm.notebook import tqdm
 import warnings
+
+# Tqdm import with fallback
+try:
+    from tqdm.notebook import tqdm as _tqdm
+    tqdm = _tqdm
+except ImportError:
+    try:
+        from tqdm import tqdm as _tqdm
+        tqdm = _tqdm
+    except ImportError:
+        # Fallback tqdm implementation
+        class FallbackTqdm:
+            def __init__(self, iterable, desc="Processing", leave=True):
+                self.iterable = iterable
+                self.desc = desc
+                self.leave = leave
+                print(f"{desc}...")
+            
+            def __iter__(self):
+                for i, item in enumerate(self.iterable):
+                    yield item
+                print(f"{self.desc} completed!")
+            
+            def set_description(self, desc):
+                pass  # Dummy implementation
+        
+        tqdm = FallbackTqdm
+
 warnings.filterwarnings('ignore')
 
 class NBeatsBlock(nn.Module):

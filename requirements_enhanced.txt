@@ -48,3 +48,10 @@ PyYAML
 mlflow
 
 optuna
+
+# Colab specific dependencies
+pyngrok>=3.0.0
+nest_asyncio>=1.5.0
+
+# Additional stability packages
+psutil>=5.8.0

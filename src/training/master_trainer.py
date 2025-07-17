@@ -15,6 +15,13 @@ import torch
 import optuna
 import copy
 import numpy as np
+import gc
+import psutil
+import warnings
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 # Ensure src path is available for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -49,20 +56,53 @@ class MasterTrainer:
         self.db_path = PATHS['database']
         self.results = {}
 
+    def _check_memory_usage(self):
+        """Check and report memory usage."""
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / 1024 / 1024
+        
+        print(f"💾 Memory usage: {memory_mb:.1f} MB")
+        
+        if torch.cuda.is_available():
+            gpu_memory = torch.cuda.memory_allocated() / 1024 / 1024
+            gpu_memory_max = torch.cuda.max_memory_allocated() / 1024 / 1024
+            print(f"🔥 GPU memory: {gpu_memory:.1f} MB (max: {gpu_memory_max:.1f} MB)")
+            
+            # Clear GPU cache if usage is high
+            if gpu_memory > 1000:  # 1GB threshold
+                torch.cuda.empty_cache()
+                print("🧹 GPU cache cleared")
+
     def _load_and_prepare_data(self, chunk_size: int = 1000) -> List[Any]:
         """Loads data from SQLite and prepares it in rolling chunks."""
         print("📊 Loading and preparing JetX data...")
         try:
+            # Check available memory
+            self._check_memory_usage()
+            
             data = load_data_from_sqlite(self.db_path)
             if not data or len(data) < chunk_size:
                 print("❌ Not enough data to start training.")
                 return []
             
+            # Adjust chunk size based on memory
+            if torch.cuda.is_available():
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
+                if gpu_memory < 8000:  # Less than 8GB GPU
+                    chunk_size = min(chunk_size, 500)
+                    print(f"⚠️ Reduced chunk size to {chunk_size} due to limited GPU memory")
+            
             chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size) if len(data[i:i + chunk_size]) >= chunk_size]
             print(f"✅ Data loaded. Created {len(chunks)} rolling chunks.")
+            
+            # Force garbage collection
+            gc.collect()
+            
             return chunks
         except Exception as e:
             print(f"❌ Failed to load data: {e}")
+            traceback.print_exc()
             return []
 
     def _create_objective_function(self, model_name: str, profile: Dict[str, Any], chunks: List[Any]) -> Any:
