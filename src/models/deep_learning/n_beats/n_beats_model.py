@@ -101,12 +101,12 @@ class JetXNBeatsBlock(nn.Module):
         self.input_size = input_size
         self.forecast_size = forecast_size
         
-        # Dinamik theta_size hesaplama - basis fonksiyonuna göre optimize
+        # Güvenli theta_size hesaplama - minimum değerler garanti et
         if theta_size is None:
             if basis_function in ['jetx_crash', 'jetx_pump']:
                 self.theta_size = max(8, min(16, input_size // 20))  # 8-16 arası
             elif basis_function == 'jetx_trend':
-                self.theta_size = max(6, min(12, input_size // 25))  # 6-12 arası 
+                self.theta_size = max(8, min(12, input_size // 25))  # 8-12 arası 
             elif basis_function == 'seasonal':
                 self.theta_size = max(10, min(20, input_size // 15))  # 10-20 arası (çift sayı olmalı)
                 if self.theta_size % 2 != 0:
@@ -114,7 +114,8 @@ class JetXNBeatsBlock(nn.Module):
             else:
                 self.theta_size = max(8, min(16, input_size // 20))
         else:
-            self.theta_size = theta_size
+            self.theta_size = max(8, theta_size)  # Minimum 8 garanti et
+        
         
         self.basis_function = basis_function
         self.hidden_size = hidden_size
@@ -159,22 +160,21 @@ class JetXNBeatsBlock(nn.Module):
         device = theta.device
         
         # Create basis patterns on the same device
+        x_device = x.to(device)
         patterns = []
         for i in range(self.theta_size):
             decay_rate = 0.3 + i * 0.05
-            # Ensure x is on correct device
-            x_device = x.to(device)
             clamped_input = torch.clamp(-decay_rate * x_device, min=-10, max=10)
             pattern = torch.exp(clamped_input)
             patterns.append(pattern)
         
-        # Stack patterns: [x_len, theta_size]
-        basis_matrix = torch.stack(patterns, dim=-1).to(device)
+        # Stack patterns: [theta_size, x_len] - FIX: transpose for correct matmul
+        basis_matrix = torch.stack(patterns, dim=0).to(device)
         
         # Compute: [batch_size, x_len]
         # theta: [batch_size, theta_size]
-        # basis_matrix: [x_len, theta_size]
-        result = torch.matmul(theta, basis_matrix.T)  # [batch_size, x_len]
+        # basis_matrix: [theta_size, x_len]
+        result = torch.matmul(theta, basis_matrix)  # [batch_size, x_len]
         
         return torch.clamp(result, min=-1e6, max=1e6)
     
@@ -185,20 +185,19 @@ class JetXNBeatsBlock(nn.Module):
         device = theta.device
         
         # Create basis patterns on the same device
+        x_device = x.to(device)
         patterns = []
         for i in range(self.theta_size):
             growth_rate = 0.1 + i * 0.02
-            # Ensure x is on correct device
-            x_device = x.to(device)
             clamped_input = torch.clamp(growth_rate * x_device, min=-10, max=10)
             pattern = torch.exp(clamped_input)
             patterns.append(pattern)
         
-        # Stack patterns: [x_len, theta_size]
-        basis_matrix = torch.stack(patterns, dim=-1).to(device)
+        # Stack patterns: [theta_size, x_len] - FIX: transpose for correct matmul
+        basis_matrix = torch.stack(patterns, dim=0).to(device)
         
         # Compute: [batch_size, x_len]
-        result = torch.matmul(theta, basis_matrix.T)  # [batch_size, x_len]
+        result = torch.matmul(theta, basis_matrix)  # [batch_size, x_len]
         
         return torch.clamp(result, min=-1e6, max=1e6)
     
@@ -209,18 +208,18 @@ class JetXNBeatsBlock(nn.Module):
         device = theta.device
         
         # Create polynomial patterns on the same device
-        patterns = []
         x_device = x.to(device)
+        patterns = []
         for i in range(self.theta_size):
             power = i + 1
             pattern = (x_device - 0.5) ** power
             patterns.append(pattern)
         
-        # Stack patterns: [x_len, theta_size]
-        basis_matrix = torch.stack(patterns, dim=-1).to(device)
+        # Stack patterns: [theta_size, x_len] - FIX: transpose for correct matmul
+        basis_matrix = torch.stack(patterns, dim=0).to(device)
         
         # Compute: [batch_size, x_len]
-        result = torch.matmul(theta, basis_matrix.T)  # [batch_size, x_len]
+        result = torch.matmul(theta, basis_matrix)  # [batch_size, x_len]
         
         return result
     
@@ -619,16 +618,16 @@ class NBeatsPredictor:
     """
     N-BEATS based predictor for JetX time series
     """
-    def __init__(self, sequence_length: int = 200, hidden_size: int = 256,
-                 num_stacks: int = 3, num_blocks: int = 3, learning_rate: float = 0.001,
-                 threshold: float = 1.5, crash_weight: float = 2.0):
+    def __init__(self, sequence_length: int = 300, hidden_size: int = 512,
+                 num_stacks: int = 4, num_blocks: int = 4, learning_rate: float = 0.001,
+                 threshold: float = 1.5, crash_weight: float = 3.0):
         self.sequence_length = sequence_length
         self.hidden_size = hidden_size
         self.num_stacks = num_stacks
         self.num_blocks = num_blocks
         self.learning_rate = learning_rate
         
-        # Initialize the fully-featured JetXNBeatsModel
+        # Initialize the fully-featured JetXNBeatsModel with optimized parameters
         self.model = JetXNBeatsModel(
             input_size=sequence_length,
             forecast_size=1,

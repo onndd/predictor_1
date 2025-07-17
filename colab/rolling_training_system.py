@@ -69,15 +69,15 @@ class RollingWindowTrainer:
             print(f"🔧 N-Beats: Num stacks: {config.get('num_stacks', 3)}")
             print(f"🔧 N-Beats: Num blocks: {config.get('num_blocks', 3)}")
             
-            # Create model with all parameters from config - optimized for sequence_length up to 300
+            # Create model with optimized parameters for better accuracy
             model = NBeatsPredictor(
                 sequence_length=config['sequence_length'],
-                hidden_size=config.get('hidden_size', 256),
-                num_stacks=config.get('num_stacks', 3),
-                num_blocks=config.get('num_blocks', 3),
+                hidden_size=config.get('hidden_size', 512),
+                num_stacks=config.get('num_stacks', 4),
+                num_blocks=config.get('num_blocks', 4),
                 learning_rate=config['learning_rate'],
                 threshold=config.get('threshold', 1.5),
-                crash_weight=config.get('crash_weight', 2.0)
+                crash_weight=config.get('crash_weight', 3.0)
             )
             
             # Train model
