@@ -117,13 +117,14 @@ class EnhancedLSTMPredictor:
     Enhanced LSTM Predictor with PyTorch backend
     """
     def __init__(self, seq_length: int = 200, n_features: int = 1, threshold: float = 1.5,
-                 hidden_size: int = 128, num_layers: int = 2, learning_rate: float = 0.001):
+                 hidden_size: int = 128, num_layers: int = 2, learning_rate: float = 0.001, device: str = 'cpu'):
         self.seq_length = seq_length
         self.n_features = n_features
         self.threshold = threshold
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.learning_rate = learning_rate
+        self.device = device
         
         # Initialize model
         self.model = JetXLSTMModel(
@@ -131,7 +132,7 @@ class EnhancedLSTMPredictor:
             hidden_size=hidden_size,
             num_layers=num_layers,
             threshold=threshold
-        )
+        ).to(self.device)
         
         # Loss function and optimizer
         self.criterion = self._create_loss_function()
@@ -225,8 +226,8 @@ class EnhancedLSTMPredictor:
             num_batches = 0
             
             for i in range(0, len(X_train), batch_size):
-                batch_X = X_train[i:i + batch_size]
-                batch_y = y_train[i:i + batch_size]
+                batch_X = X_train[i:i + batch_size].to(self.device)
+                batch_y = y_train[i:i + batch_size].to(self.device)
                 
                 self.optimizer.zero_grad()
                 predictions = self.model(batch_X)
@@ -244,8 +245,8 @@ class EnhancedLSTMPredictor:
             # Validation
             self.model.eval()
             with torch.no_grad():
-                val_predictions = self.model(X_val)
-                val_loss = self.criterion(val_predictions, y_val).item()
+                val_predictions = self.model(X_val.to(self.device))
+                val_loss = self.criterion(val_predictions, y_val.to(self.device)).item()
             
             # Update learning rate
             self.scheduler.step()
@@ -273,7 +274,7 @@ class EnhancedLSTMPredictor:
         try:
             self.model.eval()
             with torch.no_grad():
-                X = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+                X = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
                 predictions = self.model(X)
                 
                 value = predictions['value'].squeeze().item()

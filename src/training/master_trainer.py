@@ -23,14 +23,17 @@ class MasterTrainer:
     """
     Orchestrates the end-to-end model training process.
     """
-    def __init__(self, models_to_train: List[str] = None):
+    def __init__(self, models_to_train: List[str] = None, device: str = 'cpu'):
         """
         Initializes the MasterTrainer.
 
         Args:
             models_to_train: A list of model names to train. If None, trains all models from config.
+            device: The device to run training on ('cpu' or 'cuda').
         """
         self.training_profiles = get_aggressive_training_profiles()
+        self.device = device
+        print(f"🔌 MasterTrainer initialized to run on device: {self.device}")
         
         if models_to_train:
             self.models_to_train = [m for m in models_to_train if m in self.training_profiles]
@@ -82,7 +85,8 @@ class MasterTrainer:
                     model_registry=self.model_registry,
                     chunks=rolling_chunks,
                     model_type=model_name,
-                    config=profile
+                    config=profile,
+                    device=self.device
                 )
                 
                 model_results = trainer.execute_rolling_training()
@@ -125,5 +129,6 @@ class MasterTrainer:
 
 if __name__ == '__main__':
     # This allows running the trainer directly for testing
-    master_trainer = MasterTrainer(models_to_train=['N-Beats']) # Train only one model for a quick test
+    selected_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    master_trainer = MasterTrainer(models_to_train=['N-Beats'], device=selected_device) # Train only one model for a quick test
     master_trainer.run()

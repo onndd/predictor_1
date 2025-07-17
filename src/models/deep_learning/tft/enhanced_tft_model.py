@@ -88,15 +88,16 @@ class EnhancedTFTPredictor:
     """
     Enhanced TFT predictor with JetX-specific features
     """
-    def __init__(self, sequence_length: int = 200, hidden_size: int = 256, 
+    def __init__(self, sequence_length: int = 200, hidden_size: int = 256,
                  num_heads: int = 8, num_layers: int = 2, learning_rate: float = 0.001,
-                 threshold: float = 1.5):
+                 threshold: float = 1.5, device: str = 'cpu'):
         self.sequence_length = sequence_length
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.num_layers = num_layers
         self.learning_rate = learning_rate
         self.threshold = threshold
+        self.device = device
         
         # Initialize enhanced JetX TFT model
         self.model = JetXTFTModel(
@@ -106,7 +107,7 @@ class EnhancedTFTPredictor:
             num_layers=num_layers,
             forecast_horizon=1,
             threshold=threshold
-        )
+        ).to(self.device)
         
         # Use JetX-specific loss function
         self.criterion = JetXTFTLoss(threshold=threshold)
@@ -193,8 +194,8 @@ class EnhancedTFTPredictor:
             num_batches = 0
             
             for i in range(0, len(X_train), batch_size):
-                batch_X = X_train[i:i + batch_size]
-                batch_y = y_train[i:i + batch_size]
+                batch_X = X_train[i:i + batch_size].to(self.device)
+                batch_y = y_train[i:i + batch_size].to(self.device)
                 
                 self.optimizer.zero_grad()
                 predictions = self.model(batch_X)
@@ -214,8 +215,8 @@ class EnhancedTFTPredictor:
             # Validation
             self.model.eval()
             with torch.no_grad():
-                val_predictions = self.model(X_val)
-                val_loss = self.criterion(val_predictions, y_val).item()
+                val_predictions = self.model(X_val.to(self.device))
+                val_loss = self.criterion(val_predictions, y_val.to(self.device)).item()
             
             # Update learning rate
             self.scheduler.step()
@@ -260,7 +261,7 @@ class EnhancedTFTPredictor:
         try:
             self.model.eval()
             with torch.no_grad():
-                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
                 predictions = self.model(x)
                 
                 value = predictions['value'].squeeze().item()

@@ -38,11 +38,12 @@ class RollingTrainer:
     """
     A refactored, generic rolling window training system.
     """
-    def __init__(self, model_registry: ModelRegistry, chunks: List[List[float]], model_type: str, config: Dict[str, Any]):
+    def __init__(self, model_registry: ModelRegistry, chunks: List[List[float]], model_type: str, config: Dict[str, Any], device: str = 'cpu'):
         self.model_registry = model_registry
         self.chunks = chunks
         self.model_type = model_type
         self.config = config
+        self.device = device
         self.models_dir = "trained_models" # Centralize this
         os.makedirs(self.models_dir, exist_ok=True)
 
@@ -73,6 +74,10 @@ class RollingTrainer:
         if self.model_type == 'LSTM' and 'n_features' not in filtered_config:
             filtered_config['n_features'] = 1
 
+        # Pass the device to the model constructor
+        if 'device' in inspect.signature(model_class.__init__).parameters:
+            filtered_config['device'] = self.device
+
         return model_class(**filtered_config)
 
     def _test_model(self, model: Any, test_data: List[float]) -> Optional[Dict[str, Any]]:
@@ -85,8 +90,16 @@ class RollingTrainer:
 
             predictions, actuals = [], []
             for i in range(sequence_length, len(test_data)):
-                sequence = test_data[i-sequence_length:i]
-                actual = test_data[i]
+                raw_sequence = test_data[i-sequence_length:i]
+                raw_actual = test_data[i]
+
+                # FIX: Process sequence to handle tuples, ensuring correct data shape
+                if raw_sequence and isinstance(raw_sequence[0], (tuple, list)):
+                    sequence = [float(item[1]) for item in raw_sequence]
+                    actual = float(raw_actual[1])
+                else:
+                    sequence = [float(item) for item in raw_sequence]
+                    actual = float(raw_actual)
                 
                 pred_value, _, _ = model.predict_with_confidence(sequence)
                 predictions.append(pred_value)
@@ -148,6 +161,8 @@ class RollingTrainer:
 
             try:
                 model = self._get_model_instance()
+                # The model instance is now created with the device parameter,
+                # and its internal methods will handle moving data to the device.
                 model.train(data=train_data, **self.config.get('train_params', {}))
                 
                 performance = self._test_model(model, test_data)

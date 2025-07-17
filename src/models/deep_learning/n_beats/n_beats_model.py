@@ -624,12 +624,13 @@ class NBeatsPredictor:
     """
     def __init__(self, sequence_length: int = 300, hidden_size: int = 512,
                  num_stacks: int = 4, num_blocks: int = 4, learning_rate: float = 0.001,
-                 threshold: float = 1.5, crash_weight: float = 3.0):
+                 threshold: float = 1.5, crash_weight: float = 3.0, device: str = 'cpu'):
         self.sequence_length = sequence_length
         self.hidden_size = hidden_size
         self.num_stacks = num_stacks
         self.num_blocks = num_blocks
         self.learning_rate = learning_rate
+        self.device = device
         
         # Initialize the fully-featured JetXNBeatsModel with optimized parameters
         self.model = JetXNBeatsModel(
@@ -639,7 +640,7 @@ class NBeatsPredictor:
             num_blocks=num_blocks,
             hidden_size=hidden_size,
             threshold=threshold
-        )
+        ).to(self.device)
         
         # Use the custom JetXThresholdLoss
         self.criterion = JetXThresholdLoss(threshold=threshold, crash_weight=crash_weight)
@@ -744,8 +745,8 @@ class NBeatsPredictor:
             num_batches = 0
             
             for i in range(0, len(X_train), batch_size):
-                batch_X = X_train[i:i + batch_size]
-                batch_y = y_train[i:i + batch_size]
+                batch_X = X_train[i:i + batch_size].to(self.device)
+                batch_y = y_train[i:i + batch_size].to(self.device)
                 
                 self.optimizer.zero_grad()
                 predictions = self.model(batch_X) # Returns a dict
@@ -765,8 +766,8 @@ class NBeatsPredictor:
             # Validation
             self.model.eval()
             with torch.no_grad():
-                val_predictions = self.model(X_val) # Returns a dict
-                val_loss = self.criterion(val_predictions, y_val).item()
+                val_predictions = self.model(X_val.to(self.device)) # Returns a dict
+                val_loss = self.criterion(val_predictions, y_val.to(self.device)).item()
             
             # Update learning rate
             self.scheduler.step()
@@ -818,11 +819,7 @@ class NBeatsPredictor:
         try:
             self.model.eval()
             with torch.no_grad():
-                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
-                
-                # Ensure tensor is on the same device as model
-                device = next(self.model.parameters()).device
-                x = x.to(device)
+                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).to(self.device)
                 
                 predictions = self.model(x)  # Returns a dict
                 
@@ -858,9 +855,7 @@ class NBeatsPredictor:
             with torch.no_grad():
                 x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0)
                 
-                # Ensure tensor is on the same device as model
-                device = next(self.model.parameters()).device
-                x = x.to(device)
+                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).to(self.device)
                 
                 predictions = self.model(x)  # Returns a dict
                 
