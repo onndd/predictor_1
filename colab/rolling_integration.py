@@ -45,7 +45,7 @@ class RealJetXTrainingInterface:
         )
         
         self.sequence_length = widgets.IntSlider(
-            value=200, min=100, max=300, step=20,
+            value=200, min=50, max=300, step=25,
             description='Sequence Length:',
             style={'description_width': 'initial'}
         )
@@ -66,6 +66,38 @@ class RealJetXTrainingInterface:
         self.learning_rate = widgets.FloatLogSlider(
             value=0.001, base=10, min=-5, max=-1,
             description='Learning Rate:',
+            style={'description_width': 'initial'}
+        )
+        
+        # Model architecture parameters
+        self.hidden_size = widgets.Dropdown(
+            options=[128, 256, 512],
+            value=256,
+            description='Hidden Size:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.num_stacks = widgets.IntSlider(
+            value=3, min=2, max=5, step=1,
+            description='Num Stacks:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.num_blocks = widgets.IntSlider(
+            value=3, min=2, max=5, step=1,
+            description='Num Blocks:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.threshold = widgets.FloatSlider(
+            value=1.5, min=1.1, max=2.0, step=0.1,
+            description='Threshold:',
+            style={'description_width': 'initial'}
+        )
+        
+        self.crash_weight = widgets.FloatSlider(
+            value=2.0, min=1.0, max=5.0, step=0.5,
+            description='Crash Weight:',
             style={'description_width': 'initial'}
         )
         
@@ -126,7 +158,12 @@ class RealJetXTrainingInterface:
             'epochs': self.epochs_per_cycle.value,
             'batch_size': self.batch_size.value,
             'learning_rate': self.learning_rate.value,
-            'chunk_size': self.chunk_size.value
+            'chunk_size': self.chunk_size.value,
+            'hidden_size': self.hidden_size.value,
+            'num_stacks': self.num_stacks.value,
+            'num_blocks': self.num_blocks.value,
+            'threshold': self.threshold.value,
+            'crash_weight': self.crash_weight.value
         }
         
         with self.output_area:
@@ -136,6 +173,11 @@ class RealJetXTrainingInterface:
             print(f"📊 Chunk size: {config['chunk_size']}")
             print(f"📊 Sequence length: {config['sequence_length']}")
             print(f"📊 Epochs per cycle: {config['epochs']}")
+            print(f"📊 Hidden size: {config['hidden_size']}")
+            print(f"📊 Num stacks: {config['num_stacks']}")
+            print(f"📊 Num blocks: {config['num_blocks']}")
+            print(f"📊 Threshold: {config['threshold']}")
+            print(f"📊 Crash weight: {config['crash_weight']}")
             print("=" * 50)
             
             # Start rolling trainer
@@ -294,7 +336,16 @@ class RealJetXTrainingInterface:
             self.sequence_length,
             self.epochs_per_cycle,
             self.batch_size,
-            self.learning_rate
+            self.learning_rate,
+            widgets.HTML("<br>"),
+            widgets.HTML("<h4>🏗️ Model Architecture</h4>"),
+            self.hidden_size,
+            self.num_stacks,
+            self.num_blocks,
+            widgets.HTML("<br>"),
+            widgets.HTML("<h4>🎯 JetX Specific</h4>"),
+            self.threshold,
+            self.crash_weight
         ])
         
         # Eğitim kontrolleri

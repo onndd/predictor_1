@@ -94,12 +94,28 @@ class JetXNBeatsBlock(nn.Module):
     """
     JetX-specific N-BEATS Block with crash pattern basis functions
     """
-    def __init__(self, input_size: int, theta_size: int, basis_function: str = 'jetx_trend', 
-                 hidden_size: int = 256, num_layers: int = 4, threshold: float = 1.5):
+    def __init__(self, input_size: int, theta_size: Optional[int] = None, basis_function: str = 'jetx_trend', 
+                 hidden_size: int = 256, num_layers: int = 4, threshold: float = 1.5, forecast_size: int = 1):
         super(JetXNBeatsBlock, self).__init__()
         
         self.input_size = input_size
-        self.theta_size = theta_size
+        self.forecast_size = forecast_size
+        
+        # Dinamik theta_size hesaplama - basis fonksiyonuna göre optimize
+        if theta_size is None:
+            if basis_function in ['jetx_crash', 'jetx_pump']:
+                self.theta_size = max(8, min(16, input_size // 20))  # 8-16 arası
+            elif basis_function == 'jetx_trend':
+                self.theta_size = max(6, min(12, input_size // 25))  # 6-12 arası 
+            elif basis_function == 'seasonal':
+                self.theta_size = max(10, min(20, input_size // 15))  # 10-20 arası (çift sayı olmalı)
+                if self.theta_size % 2 != 0:
+                    self.theta_size += 1
+            else:
+                self.theta_size = max(8, min(16, input_size // 20))
+        else:
+            self.theta_size = theta_size
+        
         self.basis_function = basis_function
         self.hidden_size = hidden_size
         self.threshold = threshold
@@ -115,7 +131,7 @@ class JetXNBeatsBlock(nn.Module):
             if i < num_layers - 1:  # No dropout before last layer
                 layers.append(nn.Dropout(0.1))
         
-        layers.append(nn.Linear(hidden_size, theta_size))
+        layers.append(nn.Linear(hidden_size, self.theta_size))
         self.layers = nn.Sequential(*layers)
         
         # JetX-specific basis functions
@@ -138,67 +154,141 @@ class JetXNBeatsBlock(nn.Module):
     
     def _jetx_crash_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """JetX crash pattern basis function with numerical stability"""
-        # Exponential decay pattern typical of JetX crashes
-        crash_patterns = []
-        for i in range(self.theta_size):
-            decay_rate = 0.3 + i * 0.05  # Reduced for stability
-            # Clamp input to prevent overflow
-            clamped_input = torch.clamp(-decay_rate * x, min=-10, max=10)
-            pattern = torch.exp(clamped_input)
-            crash_patterns.append(pattern)
+        batch_size = theta.size(0)
+        x_len = x.size(0)
+        device = theta.device
         
-        basis = torch.stack(crash_patterns, dim=-1)
-        # Add numerical stability
-        result = torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
-        # Clamp output to prevent NaN/Inf
+        # Create basis patterns on the same device
+        patterns = []
+        for i in range(self.theta_size):
+            decay_rate = 0.3 + i * 0.05
+            # Ensure x is on correct device
+            x_device = x.to(device)
+            clamped_input = torch.clamp(-decay_rate * x_device, min=-10, max=10)
+            pattern = torch.exp(clamped_input)
+            patterns.append(pattern)
+        
+        # Stack patterns: [x_len, theta_size]
+        basis_matrix = torch.stack(patterns, dim=-1).to(device)
+        
+        # Compute: [batch_size, x_len]
+        # theta: [batch_size, theta_size]
+        # basis_matrix: [x_len, theta_size]
+        result = torch.matmul(theta, basis_matrix.T)  # [batch_size, x_len]
+        
         return torch.clamp(result, min=-1e6, max=1e6)
     
     def _jetx_pump_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """JetX pump pattern basis function with numerical stability"""
-        # Exponential growth pattern typical of JetX pumps
-        pump_patterns = []
-        for i in range(self.theta_size):
-            growth_rate = 0.1 + i * 0.02  # Reduced for stability
-            # Clamp input to prevent overflow
-            clamped_input = torch.clamp(growth_rate * x, min=-10, max=10)
-            pattern = torch.exp(clamped_input)
-            pump_patterns.append(pattern)
+        batch_size = theta.size(0)
+        x_len = x.size(0)
+        device = theta.device
         
-        basis = torch.stack(pump_patterns, dim=-1)
-        # Add numerical stability
-        result = torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
-        # Clamp output to prevent NaN/Inf
+        # Create basis patterns on the same device
+        patterns = []
+        for i in range(self.theta_size):
+            growth_rate = 0.1 + i * 0.02
+            # Ensure x is on correct device
+            x_device = x.to(device)
+            clamped_input = torch.clamp(growth_rate * x_device, min=-10, max=10)
+            pattern = torch.exp(clamped_input)
+            patterns.append(pattern)
+        
+        # Stack patterns: [x_len, theta_size]
+        basis_matrix = torch.stack(patterns, dim=-1).to(device)
+        
+        # Compute: [batch_size, x_len]
+        result = torch.matmul(theta, basis_matrix.T)  # [batch_size, x_len]
+        
         return torch.clamp(result, min=-1e6, max=1e6)
     
     def _jetx_trend_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """JetX trend basis function optimized for 1.5 threshold"""
-        # Polynomial basis centered around threshold
-        trend_patterns = []
+        batch_size = theta.size(0)
+        x_len = x.size(0)
+        device = theta.device
+        
+        # Create polynomial patterns on the same device
+        patterns = []
+        x_device = x.to(device)
         for i in range(self.theta_size):
             power = i + 1
-            pattern = (x - 0.5) ** power  # Center around middle of sequence
-            trend_patterns.append(pattern)
+            pattern = (x_device - 0.5) ** power
+            patterns.append(pattern)
         
-        basis = torch.stack(trend_patterns, dim=-1)
-        return torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        # Stack patterns: [x_len, theta_size]
+        basis_matrix = torch.stack(patterns, dim=-1).to(device)
+        
+        # Compute: [batch_size, x_len]
+        result = torch.matmul(theta, basis_matrix.T)  # [batch_size, x_len]
+        
+        return result
     
     def _linear_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Linear basis function"""
-        return theta.unsqueeze(1) * x.unsqueeze(0)
+        batch_size = theta.size(0)
+        x_len = x.size(0)
+        device = theta.device
+        
+        # Simple linear basis: just tile theta for each x position
+        x_device = x.to(device)
+        # theta: [batch_size, theta_size], take first theta coefficient for linear
+        linear_coeff = theta[:, 0:1]  # [batch_size, 1]
+        
+        # Broadcast multiplication: [batch_size, x_len]
+        result = linear_coeff * x_device.unsqueeze(0)  # [batch_size, x_len]
+        
+        return result
     
     def _seasonal_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Seasonal basis function using Fourier series"""
-        freqs = torch.arange(1, self.theta_size // 2 + 1, dtype=torch.float32)
-        basis = torch.cat([
-            torch.cos(2 * np.pi * freqs * x),
-            torch.sin(2 * np.pi * freqs * x)
-        ], dim=-1)
-        return torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        batch_size = theta.size(0)
+        x_len = x.size(0)
+        device = theta.device
+        
+        # Create Fourier basis on the same device
+        num_freqs = self.theta_size // 2
+        freqs = torch.arange(1, num_freqs + 1, dtype=torch.float32, device=device)
+        x_device = x.to(device)
+        
+        # Create cosine and sine components
+        cos_components = torch.cos(2 * np.pi * freqs.unsqueeze(1) * x_device.unsqueeze(0))  # [num_freqs, x_len]
+        sin_components = torch.sin(2 * np.pi * freqs.unsqueeze(1) * x_device.unsqueeze(0))  # [num_freqs, x_len]
+        
+        # Concatenate: [theta_size, x_len]
+        basis_matrix = torch.cat([cos_components, sin_components], dim=0)
+        
+        # Handle case where theta_size is odd
+        if self.theta_size % 2 == 1:
+            # Add one more cosine component
+            extra_cos = torch.cos(2 * np.pi * (num_freqs + 1) * x_device).unsqueeze(0)
+            basis_matrix = torch.cat([basis_matrix, extra_cos], dim=0)
+        
+        # Compute: [batch_size, x_len]
+        result = torch.matmul(theta, basis_matrix)  # [batch_size, x_len]
+        
+        return result
     
     def _trend_basis(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Trend basis function using polynomial expansion"""
-        basis = torch.stack([x ** i for i in range(self.theta_size)], dim=-1)
-        return torch.sum(theta.unsqueeze(1) * basis.unsqueeze(0), dim=-1)
+        batch_size = theta.size(0)
+        x_len = x.size(0)
+        device = theta.device
+        
+        # Create polynomial basis on the same device
+        x_device = x.to(device)
+        patterns = []
+        for i in range(self.theta_size):
+            pattern = x_device ** i  # [x_len]
+            patterns.append(pattern)
+        
+        # Stack patterns: [theta_size, x_len]
+        basis_matrix = torch.stack(patterns, dim=0).to(device)
+        
+        # Compute: [batch_size, x_len]
+        result = torch.matmul(theta, basis_matrix)  # [batch_size, x_len]
+        
+        return result
     
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -210,30 +300,38 @@ class JetXNBeatsBlock(nn.Module):
         Returns:
             Tuple of (backcast, forecast)
         """
-        theta = self.layers(x)
-        
-        # Create time indices on the same device as input
+        batch_size = x.size(0)
         device = x.device
+        
+        # Forward through layers
+        theta = self.layers(x)  # Shape: (batch_size, theta_size)
+        
+        # Create time indices normalized to [0, 1]
         backcast_indices = torch.arange(self.input_size, dtype=torch.float32, device=device) / self.input_size
-        # FIX: forecast_indices should only be forecast_size length (1), not input_size
-        forecast_indices = torch.arange(1, dtype=torch.float32, device=device)
+        forecast_indices = torch.arange(self.forecast_size, dtype=torch.float32, device=device)
         
-        # Generate backcast and forecast
-        backcast = self.basis(theta, backcast_indices)
-        forecast = self.basis(theta, forecast_indices)
+        # Generate backcast and forecast for each batch
+        backcast = self.basis(theta, backcast_indices)  # Shape: (batch_size, input_size)
+        forecast = self.basis(theta, forecast_indices)  # Shape: (batch_size, forecast_size)
         
+        # Ensure correct output shapes
+        if backcast.dim() == 1:
+            backcast = backcast.unsqueeze(0).expand(batch_size, -1)
+        if forecast.dim() == 1:
+            forecast = forecast.unsqueeze(0).expand(batch_size, -1)
+            
         return backcast, forecast
 
 class JetXNBeatsStack(nn.Module):
     """
     JetX-specific N-BEATS Stack implementation
     """
-    def __init__(self, input_size: int, theta_size: int, basis_function: str = 'jetx_trend',
-                 num_blocks: int = 3, hidden_size: int = 256, num_layers: int = 4, threshold: float = 1.5):
+    def __init__(self, input_size: int, theta_size: Optional[int] = None, basis_function: str = 'jetx_trend',
+                 num_blocks: int = 3, hidden_size: int = 256, num_layers: int = 4, threshold: float = 1.5, forecast_size: int = 1):
         super(JetXNBeatsStack, self).__init__()
         
         self.blocks = nn.ModuleList([
-            JetXNBeatsBlock(input_size, theta_size, basis_function, hidden_size, num_layers, threshold)
+            JetXNBeatsBlock(input_size, theta_size, basis_function, hidden_size, num_layers, threshold, forecast_size)
             for _ in range(num_blocks)
         ])
     
@@ -456,8 +554,8 @@ class JetXNBeatsModel(nn.Module):
         
         # Create JetX-specific stacks
         self.stacks = nn.ModuleList([
-            JetXNBeatsStack(input_size, forecast_size, basis_functions[i], 
-                           num_blocks, hidden_size, num_layers, threshold)
+            JetXNBeatsStack(input_size, None, basis_functions[i], 
+                           num_blocks, hidden_size, num_layers, threshold, forecast_size)
             for i in range(num_stacks)
         ])
         
