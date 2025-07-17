@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from src.training.rolling_trainer import RollingTrainer
 from src.training.model_registry import ModelRegistry
-from src.config.settings import MODEL_CONFIGS
 
 def test_tft_rolling_training():
     """Test TFT model with rolling training system"""

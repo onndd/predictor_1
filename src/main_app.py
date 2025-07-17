@@ -122,7 +122,7 @@ class EnhancedJetXApp:
         recent_sequence = self.current_data[-sequence_length:]
         
         # Make optimized ensemble prediction
-        result = self.model_manager.predict_with_optimized_ensemble(recent_sequence)
+        result = self.model_manager.predict_with_ensemble(recent_sequence, use_optimized=True)
         
         return result
     

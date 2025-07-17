@@ -10,28 +10,32 @@ import json
 import traceback
 from datetime import datetime
 from tqdm import tqdm
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from src.training.model_registry import ModelRegistry
+from src.config.settings import PATHS
 
 # A factory to get model classes dynamically
 def get_model_predictor(model_type: str) -> Any:
-    """Dynamically imports and returns a model predictor class."""
+    """Dynamically imports and returns a model predictor class using a mapping."""
+    
+    # Model adını ve import yolunu içeren bir sözlük
+    MODEL_MAP = {
+        'N-Beats': 'src.models.deep_learning.n_beats.n_beats_model.NBeatsPredictor',
+        'TFT': 'src.models.deep_learning.tft.enhanced_tft_model.EnhancedTFTPredictor',
+        'LSTM': 'src.models.sequential.enhanced_lstm_pytorch.EnhancedLSTMPredictor',
+        # Yeni modeller buraya kolayca eklenebilir
+    }
+
+    if model_type not in MODEL_MAP:
+        raise ImportError(f"Model type '{model_type}' is not supported or defined in MODEL_MAP.")
+
     try:
-        if model_type == 'N-Beats':
-            from src.models.deep_learning.n_beats.n_beats_model import NBeatsPredictor
-            return NBeatsPredictor
-        elif model_type == 'TFT':
-            from src.models.deep_learning.tft.enhanced_tft_model import EnhancedTFTPredictor
-            return EnhancedTFTPredictor
-        elif model_type == 'LSTM':
-            from src.models.sequential.enhanced_lstm_pytorch import EnhancedLSTMPredictor
-            return EnhancedLSTMPredictor
-        # Add other models here as elif blocks
-        else:
-            raise ImportError(f"Model type '{model_type}' is not supported.")
-    except ImportError as e:
-        print(f"❌ Could not import model {model_type}: {e}")
+        module_path, class_name = MODEL_MAP[model_type].rsplit('.', 1)
+        module = __import__(module_path, fromlist=[class_name])
+        return getattr(module, class_name)
+    except (ImportError, AttributeError) as e:
+        print(f"❌ Could not import model {model_type} from {MODEL_MAP[model_type]}: {e}")
         raise
 
 class RollingTrainer:
@@ -44,7 +48,7 @@ class RollingTrainer:
         self.model_type = model_type
         self.config = config
         self.device = device
-        self.models_dir = "trained_models" # Centralize this
+        self.models_dir = PATHS['models_dir']
         os.makedirs(self.models_dir, exist_ok=True)
 
     def _get_model_instance(self) -> Any:
@@ -94,11 +98,12 @@ class RollingTrainer:
                 raw_actual = test_data[i]
 
                 # FIX: Process sequence to handle tuples, ensuring correct data shape
-                if raw_sequence and isinstance(raw_sequence[0], (tuple, list)):
-                    sequence = [float(item[1]) for item in raw_sequence]
+                # FIX: Process sequence to handle tuples or floats individually
+                sequence = [float(item[1]) if isinstance(item, (tuple, list)) else float(item) for item in raw_sequence]
+                
+                if isinstance(raw_actual, (tuple, list)):
                     actual = float(raw_actual[1])
                 else:
-                    sequence = [float(item) for item in raw_sequence]
                     actual = float(raw_actual)
                 
                 pred_value, _, _ = model.predict_with_confidence(sequence)
@@ -121,7 +126,7 @@ class RollingTrainer:
             traceback.print_exc()
             return None
 
-    def _save_model(self, model: Any, cycle: int) -> (Optional[str], Optional[str]):
+    def _save_model(self, model: Any, cycle: int) -> Tuple[Optional[str], Optional[str]]:
         """Saves the model and its metadata."""
         try:
             model_name = f"{self.model_type}_cycle_{cycle}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -177,7 +182,7 @@ class RollingTrainer:
                     continue
                 
                 model_path, metadata_path = self._save_model(model, cycle + 1)
-                if not model_path:
+                if not model_path or not metadata_path:
                     print("❌ Model saving failed, skipping cycle.")
                     continue
 

@@ -9,12 +9,17 @@ import os
 import sys
 import traceback
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+import mlflow
+import torch
+import optuna
+import copy
+import numpy as np
 
 # Ensure src path is available for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.config.settings import get_aggressive_training_profiles, PATHS
+from src.config.settings import get_aggressive_training_profiles, PATHS, CONFIG
 from src.data_processing.loader import load_data_from_sqlite
 from src.training.rolling_trainer import RollingTrainer
 from src.training.model_registry import ModelRegistry
@@ -23,7 +28,7 @@ class MasterTrainer:
     """
     Orchestrates the end-to-end model training process.
     """
-    def __init__(self, models_to_train: List[str] = None, device: str = 'cpu'):
+    def __init__(self, models_to_train: Optional[List[str]] = None, device: str = 'cpu'):
         """
         Initializes the MasterTrainer.
 
@@ -44,7 +49,7 @@ class MasterTrainer:
         self.db_path = PATHS['database']
         self.results = {}
 
-    def _load_and_prepare_data(self, chunk_size: int = 1000) -> List[List[float]]:
+    def _load_and_prepare_data(self, chunk_size: int = 1000) -> List[Any]:
         """Loads data from SQLite and prepares it in rolling chunks."""
         print("📊 Loading and preparing JetX data...")
         try:
@@ -60,9 +65,80 @@ class MasterTrainer:
             print(f"❌ Failed to load data: {e}")
             return []
 
+    def _create_objective_function(self, model_name: str, profile: Dict[str, Any], chunks: List[Any]) -> Any:
+        """Creates the objective function for Optuna study."""
+        
+        hpo_space = CONFIG.get('hpo_search_space', {}).get(model_name)
+        if not hpo_space:
+            return None
+
+        def objective(trial: optuna.Trial) -> float:
+            """The objective function to be minimized by Optuna."""
+            # Deepcopy to avoid modifying the original profile during trials
+            trial_profile = copy.deepcopy(profile)
+            
+            # Suggest hyperparameters based on the search space in config.yaml
+            for param, space in hpo_space.items():
+                if space['type'] == 'categorical':
+                    trial_profile[param] = trial.suggest_categorical(param, space['choices'])
+                elif space['type'] == 'float':
+                    trial_profile[param] = trial.suggest_float(param, space['low'], space['high'], log=space.get('log', False))
+                elif space['type'] == 'int':
+                    trial_profile[param] = trial.suggest_int(param, space['low'], space['high'])
+            
+            print(f"  [HPO Trial] Testing params: {trial.params}")
+
+            # Use a smaller subset of data for faster HPO
+            hpo_chunks = chunks[:min(3, len(chunks))] # Use first 3 chunks for speed
+
+            trainer = RollingTrainer(
+                model_registry=ModelRegistry(), # Use a temporary registry for HPO
+                chunks=hpo_chunks,
+                model_type=model_name,
+                config=trial_profile,
+                device=self.device
+            )
+            
+            try:
+                results = trainer.execute_rolling_training()
+                if not results:
+                    return float('inf') # Return a large value if training fails
+                
+                # We want to minimize MAE
+                avg_mae = np.mean([r['performance']['mae'] for r in results])
+                return float(avg_mae)
+            except Exception as e:
+                print(f"  [HPO Trial] Exception: {e}")
+                return float('inf') # Penalize failed trials
+
+        return objective
+
+    def _run_hpo(self, model_name: str, profile: Dict[str, Any], chunks: List[Any]) -> Dict[str, Any]:
+        """Runs Hyperparameter Optimization for a given model."""
+        print(f"🔬 Starting HPO for {model_name}...")
+        
+        objective_func = self._create_objective_function(model_name, profile, chunks)
+        if not objective_func:
+            print(f"⚠️ No HPO search space defined for {model_name}. Skipping HPO.")
+            return profile
+
+        study = optuna.create_study(direction='minimize')
+        n_trials = CONFIG.get('hpo_search_space', {}).get('n_trials', 20)
+        
+        study.optimize(objective_func, n_trials=n_trials)
+        
+        print(f"🏆 HPO finished for {model_name}. Best MAE: {study.best_value:.4f}")
+        print(f"  - Best params: {study.best_params}")
+        
+        # Update the original profile with the best parameters found
+        optimized_profile = copy.deepcopy(profile)
+        optimized_profile.update(study.best_params)
+        
+        return optimized_profile
+
     def run(self):
         """
-        Executes the entire automated training pipeline.
+        Executes the entire automated training pipeline, including HPO.
         """
         print("🚀 MASTER TRAINER: Starting automated training pipeline.")
         print("="*60)
@@ -72,30 +148,52 @@ class MasterTrainer:
             print("❌ Pipeline stopped due to data loading failure.")
             return
 
-        for model_name in self.models_to_train:
-            print(f"\n\n--- Training Model: {model_name} ---")
-            profile = self.training_profiles[model_name]
-            
-            print("⚙️ Using Training Profile:")
-            for key, value in profile.items():
-                print(f"   - {key}: {value}")
+        with mlflow.start_run(run_name="Master_Training_Run"):
+            mlflow.set_tag("execution_time", datetime.now().isoformat())
+            print(f"🚀 MLflow Run Started. Check UI at http://127.0.0.1:5000")
 
-            try:
-                trainer = RollingTrainer(
-                    model_registry=self.model_registry,
-                    chunks=rolling_chunks,
-                    model_type=model_name,
-                    config=profile,
-                    device=self.device
-                )
+            for model_name in self.models_to_train:
+                print(f"\n\n--- Processing Model: {model_name} ---")
                 
-                model_results = trainer.execute_rolling_training()
-                self.results[model_name] = model_results
-                print(f"✅ Successfully completed training for {model_name}.")
+                # 1. Get base profile
+                base_profile = self.training_profiles[model_name]
+                
+                # 2. Run HPO to get optimized profile
+                optimized_profile = self._run_hpo(model_name, base_profile, rolling_chunks)
 
-            except Exception as e:
-                print(f"❌ An error occurred during training for {model_name}: {e}")
-                traceback.print_exc()
+                # 3. Run final training with optimized profile
+                print(f"🎓 Starting final training for {model_name} with optimized parameters...")
+                try:
+                    with mlflow.start_run(run_name=f"Final_{model_name}", nested=True) as final_run:
+                        mlflow.log_params(optimized_profile)
+                        mlflow.set_tag("model_type", model_name)
+
+                        trainer = RollingTrainer(
+                            model_registry=self.model_registry,
+                            chunks=rolling_chunks,
+                            model_type=model_name,
+                            config=optimized_profile,
+                            device=self.device
+                        )
+                        
+                        model_results = trainer.execute_rolling_training()
+                        self.results[model_name] = model_results
+                        
+                        if model_results:
+                            best_cycle = min(model_results, key=lambda x: x['performance']['mae'])
+                            mlflow.log_metrics({
+                                'best_mae': best_cycle['performance']['mae'],
+                                'best_accuracy': best_cycle['performance']['accuracy'],
+                                'best_rmse': best_cycle['performance']['rmse']
+                            })
+                            mlflow.log_artifact(best_cycle['model_path'])
+                            print(f"✅ Successfully completed final training for {model_name}.")
+                        else:
+                            print(f"⚠️ Final training for {model_name} produced no results.")
+
+                except Exception as e:
+                    print(f"❌ An error occurred during final training for {model_name}: {e}")
+                    traceback.print_exc()
         
         self._finalize_and_report()
 
@@ -130,5 +228,6 @@ class MasterTrainer:
 if __name__ == '__main__':
     # This allows running the trainer directly for testing
     selected_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    master_trainer = MasterTrainer(models_to_train=['N-Beats'], device=selected_device) # Train only one model for a quick test
+    # Train only one model for a quick test of the full pipeline
+    master_trainer = MasterTrainer(models_to_train=['N-Beats'], device=selected_device)
     master_trainer.run()

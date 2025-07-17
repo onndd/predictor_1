@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.calibration import CalibratedClassifierCV
@@ -343,7 +343,7 @@ class HighValueClassifier:
     
     def predict_high_value_probability(self, sequence):
         """10x üzeri olma olasılığını tahmin et"""
-        if not self.is_fitted:
+        if not self.is_fitted or self.model is None:
             return 0.1, 0.0  # Low default probability for rare events
             
         try:
@@ -352,31 +352,13 @@ class HighValueClassifier:
             X_scaled = self.scaler.transform(X)
             
             # Olasılık tahmini
-            prob_high = self.model.predict_proba(X_scaled)[0][1]  # 10x üzeri olma olasılığı
+            prob_high = self.model.predict_proba(X_scaled)[0][1]
             
-            # Güven skoru - özellikle rare events için calibrated
-            if hasattr(self.model, 'estimators_'):
-                # Ensemble model - individual predictions
-                individual_probs = []
-                try:
-                    for estimator in self.model.estimators_:
-                        if hasattr(estimator, 'predict_proba'):
-                            ind_prob = estimator.predict_proba(X_scaled)[0][1]
-                            individual_probs.append(ind_prob)
-                except:
-                    pass
-                        
-                if individual_probs and len(individual_probs) > 1:
-                    confidence = 1.0 - np.std(individual_probs)  # Model agreement
-                else:
-                    confidence = max(0.0, min(1.0, abs(prob_high - 0.1) * 2))  # Distance from low baseline
-            else:
-                # Single model confidence
-                confidence = max(0.0, min(1.0, abs(prob_high - 0.1) * 2))
-                
+            # Güven skoru
+            confidence = abs(float(prob_high) - 0.1) * 2 # Distance from low baseline
             confidence = max(0.0, min(1.0, confidence))
             
-            return prob_high, confidence
+            return float(prob_high), confidence
             
         except Exception as e:
             print(f"High value prediction error: {e}")
@@ -438,9 +420,9 @@ class HighValueSpecialist:
                 # Performance metrics - özellikle recall'ı önemse (rare events kaçırmama)
                 if len(set(val_labels)) > 1:  # Both classes present
                     accuracy = accuracy_score(val_labels, val_predictions)
-                    precision = precision_score(val_labels, val_predictions, zero_division=0)
-                    recall = recall_score(val_labels, val_predictions, zero_division=0)
-                    f1 = f1_score(val_labels, val_predictions, zero_division=0)
+                    precision = precision_score(val_labels, val_predictions, zero_division='warn')
+                    recall = recall_score(val_labels, val_predictions, zero_division='warn')
+                    f1 = f1_score(val_labels, val_predictions, zero_division='warn')
                     
                     # Yüksek değerler için recall çok önemli (kaçırmamak)
                     combined_score = (accuracy + 3*recall + precision + f1) / 6

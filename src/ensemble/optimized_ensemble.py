@@ -5,6 +5,8 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
+from src.config.settings import CONFIG
+
 class OptimizedEnsemble:
     """
     Optimized Ensemble System for JetX Prediction
@@ -17,37 +19,40 @@ class OptimizedEnsemble:
     - Robust error handling
     """
     
-    def __init__(self, models=None, threshold=1.5, performance_window=100, max_model_errors: int = 5):
+    def __init__(self, models=None, threshold=1.5):
         """
         Initialize optimized ensemble
         
         Args:
             models: Dictionary of model instances
             threshold: Decision threshold
-            performance_window: Window size for performance tracking
-            max_model_errors: Number of errors before deactivating a model
         """
+        # Load config from central file
+        ensemble_config = CONFIG.get('ensemble', {})
+        
         self.models = models or {}
         self.threshold = threshold
-        self.performance_window = performance_window
-        self.max_model_errors = max_model_errors
+        self.performance_window = ensemble_config.get('performance_window', 100)
+        self.max_model_errors = ensemble_config.get('max_model_errors', 5)
         
         # Optimized weight system
         self.weights = {}
         self.performance_tracker = {}
         
         # Efficient data structures
-        self.prediction_history = deque(maxlen=performance_window)
-        self.accuracy_history = deque(maxlen=performance_window)
-        self.confidence_history = deque(maxlen=performance_window)
+        self.prediction_history = deque(maxlen=self.performance_window)
+        self.accuracy_history = deque(maxlen=self.performance_window)
+        self.confidence_history = deque(maxlen=self.performance_window)
         
         # Model metadata
         self.model_stats = {}
         self.last_update = datetime.now()
         
-        # Performance thresholds
-        self.min_accuracy = 0.45  # Minimum acceptable accuracy
-        self.confidence_threshold = 0.4  # Minimum confidence for prediction
+        # Performance thresholds from config
+        self.min_accuracy = ensemble_config.get('min_accuracy_to_activate', 0.45)
+        self.confidence_threshold = ensemble_config.get('confidence_to_activate', 0.4)
+        self.form_score_weight = ensemble_config.get('form_score_weight', 0.4)
+        self.overall_accuracy_weight = ensemble_config.get('overall_accuracy_weight', 0.6)
         
         # Initialize models
         self._initialize_models()
@@ -358,39 +363,49 @@ class OptimizedEnsemble:
         self._manage_model_activity()
 
     def _update_model_weights(self, actual_value, last_prediction):
-        """Update model weights based on performance"""
+        """
+        Update model weights based on a combination of overall performance and recent form.
+        """
         actual_above = actual_value >= self.threshold
         
         for model_name in last_prediction['models']:
+            tracker = self.performance_tracker[model_name]
+            
+            # --- Performance Metrics ---
+            # 1. Overall Accuracy (long-term performance)
+            overall_accuracy = tracker['accuracy']
+            
+            # 2. Form Score (short-term performance)
+            recent_performance = list(tracker['recent_correct'])
+            form_score = np.mean(recent_performance) if recent_performance else 0.5
+
+            # --- Weight Adjustment Logic ---
             model_pred = last_prediction['models'][model_name]
             predicted_above = model_pred['probability'] > 0.5
             is_correct = predicted_above == actual_above
             
-            # Get current performance
-            current_accuracy = self.performance_tracker[model_name]['accuracy']
+            # Determine learning rate based on correctness
+            # Reward good models, penalize bad ones more heavily
+            learning_rate = 0.05 if is_correct else 0.1
             
-            # Adaptive learning rate
-            if is_correct:
-                # Lower learning rate for already good models to avoid overfitting weights
-                adaptive_lr = 0.05 * (1.0 - current_accuracy)
-            else:
-                # Higher learning rate for poor models to correct them faster
-                adaptive_lr = 0.1 * (1.0 - current_accuracy)
+            # Calculate performance delta: how much better/worse the model is than average
+            # This combines long-term and short-term views
+            performance_metric = (overall_accuracy * self.overall_accuracy_weight) + (form_score * self.form_score_weight)
+            
+            # The adjustment is proportional to the performance metric
+            adjustment = learning_rate * (performance_metric - 0.5) # (0.5 is baseline)
 
-            # Weight adjustment
             if is_correct:
-                # Reward correct predictions
-                reward = adaptive_lr
-                self.weights[model_name] += reward
+                # Reward correct predictions, more so if the model is already good
+                self.weights[model_name] += abs(adjustment)
             else:
-                # Penalize incorrect predictions
-                penalty = adaptive_lr
-                self.weights[model_name] -= penalty
-            
-            # Keep weights positive
+                # Penalize incorrect predictions, more so if the model is bad
+                self.weights[model_name] -= abs(adjustment)
+
+            # Keep weights within a reasonable floor to prevent them from dying out completely
             self.weights[model_name] = max(0.01, self.weights[model_name])
-        
-        # Normalize weights
+            
+        # Normalize all weights to sum to 1
         self._normalize_weights()
 
     def _normalize_weights(self):

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.calibration import CalibratedClassifierCV
@@ -157,7 +157,7 @@ class LowValueClassifier:
         self.threshold = threshold
         self.model_type = model_type
         self.feature_extractor = LowValueFeatureExtractor(threshold)
-        self.scaler = RobustScaler()  # Outlier'lara dayanıklı
+        self.scaler = RobustScaler()
         self.model = None
         self.is_fitted = False
         
@@ -259,7 +259,7 @@ class LowValueClassifier:
     
     def predict_low_value_probability(self, sequence):
         """1.5 altı olma olasılığını tahmin et"""
-        if not self.is_fitted:
+        if not self.is_fitted or self.model is None:
             return 0.5, 0.0
             
         try:
@@ -268,30 +268,13 @@ class LowValueClassifier:
             X_scaled = self.scaler.transform(X)
             
             # Olasılık tahmini
-            prob_low = self.model.predict_proba(X_scaled)[0][1]  # 1.5 altı olma olasılığı
+            prob_low = self.model.predict_proba(X_scaled)[0][1]
             
             # Güven skoru
-            if hasattr(self.model, 'estimators_'):
-                # Ensemble model - individual predictions
-                individual_probs = []
-                for estimator in self.model.estimators_:
-                    try:
-                        if hasattr(estimator, 'predict_proba'):
-                            ind_prob = estimator.predict_proba(X_scaled)[0][1]
-                            individual_probs.append(ind_prob)
-                    except:
-                        continue
-                        
-                if individual_probs:
-                    confidence = 1.0 - np.std(individual_probs)  # Model agreement
-                else:
-                    confidence = abs(prob_low - 0.5) * 2  # Distance from uncertainty
-            else:
-                confidence = abs(prob_low - 0.5) * 2
-                
+            confidence = abs(float(prob_low) - 0.5) * 2
             confidence = max(0.0, min(1.0, confidence))
             
-            return prob_low, confidence
+            return float(prob_low), confidence
             
         except Exception as e:
             print(f"Low value prediction error: {e}")
@@ -347,9 +330,9 @@ class LowValueSpecialist:
                 
                 # Performance metrics
                 accuracy = accuracy_score(val_labels, val_predictions)
-                precision = precision_score(val_labels, val_predictions, zero_division=0)
-                recall = recall_score(val_labels, val_predictions, zero_division=0)
-                f1 = f1_score(val_labels, val_predictions, zero_division=0)
+                precision = precision_score(val_labels, val_predictions, zero_division='warn')
+                recall = recall_score(val_labels, val_predictions, zero_division='warn')
+                f1 = f1_score(val_labels, val_predictions, zero_division='warn')
                 
                 # Özellikle recall'ı önemse (1.5 altı değerleri kaçırmama)
                 combined_score = (accuracy + 2*recall + precision + f1) / 5

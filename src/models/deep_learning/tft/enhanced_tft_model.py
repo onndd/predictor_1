@@ -48,13 +48,14 @@ class JetXTFTModel(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(dropout)
         
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, return_attention: bool = False) -> Dict[str, torch.Tensor]:
         """
         Forward pass with multi-output predictions
         
         Args:
             x: Input tensor of shape (batch_size, seq_len, input_size)
             mask: Attention mask
+            return_attention: If True, includes attention weights in the output dict.
             
         Returns:
             Dictionary with multiple predictions
@@ -76,14 +77,18 @@ class JetXTFTModel(nn.Module):
         crash_risk_pred = torch.sigmoid(self.crash_risk_projection(last_hidden))
         pattern_pred = self.pattern_analyzer(last_hidden)
         
-        return {
+        predictions = {
             'value': value_pred,
             'probability': probability_pred,
             'confidence': confidence_pred,
             'crash_risk': crash_risk_pred,
             'pattern': pattern_pred,
-            'attention_weights': attention_weights
         }
+        
+        if return_attention:
+            predictions['attention_weights'] = attention_weights
+            
+        return predictions
 
 class EnhancedTFTPredictor:
     """
@@ -251,7 +256,18 @@ class EnhancedTFTPredictor:
     
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         """
-        Make a prediction with confidence metrics - required for rolling training system
+        Make a prediction with confidence metrics - required for rolling training system.
+        This method is kept for compatibility with the RollingTrainer.
+        """
+        value, probability, confidence, _ = self.predict_with_attention(sequence)
+        return value, probability, confidence
+
+    def predict_with_attention(self, sequence: List[float]) -> Tuple[float, float, float, Optional[List[torch.Tensor]]]:
+        """
+        Makes a prediction and returns attention weights.
+        
+        Returns:
+            Tuple of (value, probability, confidence, attention_weights)
         """
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
@@ -263,18 +279,19 @@ class EnhancedTFTPredictor:
             self.model.eval()
             with torch.no_grad():
                 x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
-                predictions = self.model(x)
+                predictions = self.model(x, return_attention=True)
                 
                 value = predictions['value'].squeeze().item()
                 probability = predictions['probability'].squeeze().item()
                 confidence = predictions['confidence'].squeeze().item()
+                attention_weights = predictions.get('attention_weights') # Use .get for safety
                 
                 # Validate outputs
                 import numpy as np
                 if any(np.isnan([value, probability, confidence])) or any(np.isinf([value, probability, confidence])):
                     raise ValueError("Model produced invalid predictions")
                 
-                return float(value), float(probability), float(confidence)
+                return float(value), float(probability), float(confidence), attention_weights
                 
         except Exception as e:
             raise RuntimeError(f"Enhanced TFT prediction failed: {str(e)}")

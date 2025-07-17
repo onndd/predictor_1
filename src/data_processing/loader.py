@@ -1,23 +1,31 @@
 import sqlite3
 
+from typing import List, Any, Union, Optional
+
 class DataFrameAlternative:
     """Pandas DataFrame'e basit alternatif"""
-    def __init__(self, data=None, columns=None):
+    def __init__(self, data: Optional[List[List[Any]]] = None, columns: Optional[List[str]] = None):
         if data is None:
-            self.data = []
-            self.columns = columns or []
+            self.data: List[List[Any]] = []
+            self.columns: List[str] = columns or []
         else:
             self.data = data
-            self.columns = columns or list(range(len(data[0]) if data else []))
+            self.columns = columns or [str(i) for i in range(len(data[0]) if data else 0)]
     
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
     
-    def __getitem__(self, key):
-        if isinstance(key, str) and key in self.columns:
-            col_idx = self.columns.index(key)
-            return ColumnData([row[col_idx] for row in self.data])
-        return self.data[key]
+    def __getitem__(self, key: Union[str, int, slice]) -> Any:
+        if isinstance(key, str):
+            if key in self.columns:
+                col_idx = self.columns.index(key)
+                return ColumnData([row[col_idx] for row in self.data])
+            else:
+                raise KeyError(f"Column '{key}' not found")
+        elif isinstance(key, (int, slice)):
+            return self.data[key]
+        else:
+            raise TypeError(f"Unsupported key type: {type(key)}")
     
     @property
     def empty(self):
@@ -76,13 +84,13 @@ def load_data_from_sqlite(db_path="jetx_data.db", limit=None):
     ''')
     
     # Verileri çek
+    cursor = conn.cursor()
     if limit:
-        query = f"SELECT * FROM jetx_results ORDER BY id DESC LIMIT {limit}"
+        query = "SELECT * FROM jetx_results ORDER BY id DESC LIMIT ?"
+        cursor.execute(query, (limit,))
     else:
         query = "SELECT * FROM jetx_results ORDER BY id"
-    
-    cursor = conn.cursor()
-    cursor.execute(query)
+        cursor.execute(query)
     rows = cursor.fetchall()
     
     # Column names

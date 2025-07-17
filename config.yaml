@@ -1,0 +1,237 @@
+# ===================================================================
+# Merkezi Konfigürasyon Dosyası - JetX Tahmin Sistemi
+# ===================================================================
+
+# -------------------------------------------------------------------
+# Veritabanı ve Dosya Yolları
+# -------------------------------------------------------------------
+paths:
+  database: "data/jetx_data.db"
+  models_dir: "trained_models"
+  log_file: "jetx_prediction.log"
+  # Alt dizinler ana 'models_dir'e göre otomatik oluşturulacak
+  # deep_learning_models: "trained_models/deep_learning"
+  # statistical_models: "trained_models/statistical"
+  # ensemble_models: "trained_models/ensemble"
+  # metadata: "trained_models/metadata"
+  # backup: "trained_models/backup"
+
+# -------------------------------------------------------------------
+# Uygulama Ayarları
+# -------------------------------------------------------------------
+application:
+  auto_train_heavy_models: false
+  max_display_values: 50
+  update_frequency: 15       # Her N yeni değerde yeniden eğit
+  save_models_automatically: true
+
+# -------------------------------------------------------------------
+# Genel Eğitim Ayarları
+# -------------------------------------------------------------------
+training:
+  default_epochs: 100
+  batch_size: 32
+  validation_split: 0.2
+  min_data_points: 500
+  sequence_length: 200
+  threshold: 1.5
+
+# -------------------------------------------------------------------
+# Tahmin Ayarları
+# -------------------------------------------------------------------
+prediction:
+  confidence_thresholds:
+    high: 0.7
+    medium: 0.5
+    low: 0.3
+  ensemble_weights:
+    deep_learning: 0.6
+    statistical: 0.4
+
+# -------------------------------------------------------------------
+# Model Konfigürasyonları
+# -------------------------------------------------------------------
+models:
+  # Ağır (Deep Learning) Modeller
+  n_beats:
+    is_heavy: true
+    description: 'Neural Basis Expansion Analysis for Time Series'
+    params:
+      sequence_length: 200
+      hidden_size: 256
+      num_stacks: 3
+      num_blocks: 3
+      learning_rate: 0.001
+
+  tft:
+    is_heavy: true
+    description: 'Temporal Fusion Transformer'
+    params:
+      sequence_length: 200
+      hidden_size: 256
+      num_heads: 8
+      num_layers: 2
+      learning_rate: 0.001
+
+  informer:
+    is_heavy: true
+    description: 'Long Sequence Time Series Forecasting'
+    params:
+      sequence_length: 200
+      d_model: 512
+      n_heads: 8
+      e_layers: 2
+      d_layers: 1
+      learning_rate: 0.001
+
+  autoformer:
+    is_heavy: true
+    description: 'Auto-Correlation for Time Series'
+    params:
+      sequence_length: 200
+      d_model: 512
+      n_heads: 8
+      e_layers: 2
+      d_layers: 1
+      learning_rate: 0.001
+
+  pathformer:
+    is_heavy: true
+    description: 'Path-based Attention for Time Series'
+    params:
+      sequence_length: 200
+      d_model: 512
+      n_heads: 8
+      num_layers: 6
+      path_length: 3
+      learning_rate: 0.001
+
+  # Hafif (İstatistiksel) Modeller
+  light_ensemble:
+    is_heavy: false
+    description: 'Ensemble of Light Statistical Models'
+
+  hybrid_predictor:
+    is_heavy: false
+    description: 'Hybrid Statistical Predictor'
+
+  crash_detector:
+    is_heavy: false
+    description: 'Crash Detection Model'
+
+# -------------------------------------------------------------------
+# Agresif Eğitim Profilleri (Colab için)
+# -------------------------------------------------------------------
+aggressive_training_profiles:
+  N-Beats:
+    sequence_length: 300
+    hidden_size: 512
+    num_stacks: 4
+    num_blocks: 4
+    learning_rate: 0.0005
+    threshold: 1.5
+    crash_weight: 3.0
+    train_params:
+      epochs: 75
+      batch_size: 32
+      validation_split: 0.15
+      verbose: true
+
+  TFT:
+    sequence_length: 250
+    hidden_size: 256
+    num_heads: 8
+    num_layers: 3
+    learning_rate: 0.0005
+    threshold: 1.5
+    train_params:
+      epochs: 60
+      batch_size: 16
+      validation_split: 0.15
+      verbose: true
+
+  LSTM:
+    sequence_length: 200
+    hidden_size: 256 # lstm_units'e haritalanır
+    num_layers: 3
+    learning_rate: 0.0005
+    threshold: 1.5
+    train_params:
+      epochs: 80
+      batch_size: 32
+      validation_split: 0.15
+      verbose: true
+
+# -------------------------------------------------------------------
+# Loglama Ayarları
+# -------------------------------------------------------------------
+logging:
+  level: 'INFO'
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+# -------------------------------------------------------------------
+# Hiperparametre Optimizasyon (HPO) Arama Alanı
+# -------------------------------------------------------------------
+hpo_search_space:
+  n_trials: 20 # Her model için denenecek kombinasyon sayısı
+
+  N-Beats:
+    learning_rate: { type: 'float', low: 1e-5, high: 1e-2, log: true }
+    hidden_size: { type: 'categorical', choices: [128, 256, 512] }
+    num_stacks: { type: 'int', low: 2, high: 5 }
+    num_blocks: { type: 'int', low: 2, high: 5 }
+
+  TFT:
+    learning_rate: { type: 'float', low: 1e-5, high: 1e-2, log: true }
+    hidden_size: { type: 'categorical', choices: [64, 128, 256] }
+    num_heads: { type: 'categorical', choices: [4, 8] }
+    num_layers: { type: 'int', low: 1, high: 3 }
+    
+  LSTM:
+    learning_rate: { type: 'float', low: 1e-5, high: 1e-2, log: true }
+    hidden_size: { type: 'categorical', choices: [128, 256, 512] }
+    num_layers: { type: 'int', low: 1, high: 4 }
+
+# -------------------------------------------------------------------
+# Ensemble Ayarları
+# -------------------------------------------------------------------
+ensemble:
+  performance_window: 100
+  max_model_errors: 5
+  min_accuracy_to_activate: 0.45
+  confidence_to_activate: 0.4
+  form_score_weight: 0.4 # Yakın dönem performansının ağırlığı (0.0 - 1.0)
+  overall_accuracy_weight: 0.6 # Genel performansın ağırlığı
+
+# -------------------------------------------------------------------
+# Geriye Dönük Test (Backtesting) Ayarları
+# -------------------------------------------------------------------
+backtesting:
+  test_size: 0.2
+  window_size: 100
+  step_size: 1
+  # Örnek "short" stratejisi için eşik değeri
+  # Eğer modelin çökme olasılığı (1 - above_prob) bu değerden büyükse pozisyon al
+  strategy_threshold: 0.7
+
+# -------------------------------------------------------------------
+# Ensemble Ayarları
+# -------------------------------------------------------------------
+ensemble:
+  performance_window: 100
+  max_model_errors: 5
+  min_accuracy_to_activate: 0.45
+  confidence_to_activate: 0.4
+  form_score_weight: 0.4 # Yakın dönem performansının ağırlığı (0.0 - 1.0)
+  overall_accuracy_weight: 0.6 # Genel performansın ağırlığı
+
+# -------------------------------------------------------------------
+# Geriye Dönük Test (Backtesting) Ayarları
+# -------------------------------------------------------------------
+backtesting:
+  test_size: 0.2
+  window_size: 100
+  step_size: 1
+  # Örnek "short" stratejisi için eşik değeri
+  # Eğer modelin çökme olasılığı (1 - above_prob) bu değerden büyükse pozisyon al
+  strategy_threshold: 0.7

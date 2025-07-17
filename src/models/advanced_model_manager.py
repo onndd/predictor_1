@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 DEEP_MODELS_ERROR = None
 try:
     from .deep_learning.n_beats.n_beats_model import NBeatsPredictor
-    from .deep_learning.tft.tft_model import TFTPredictor
+    from .deep_learning.tft.enhanced_tft_model import EnhancedTFTPredictor
     from .deep_learning.informer.informer_model import InformerPredictor
     from .deep_learning.autoformer.autoformer_model import AutoformerPredictor
     from .deep_learning.pathformer.pathformer_model import PathformerPredictor
@@ -39,9 +39,8 @@ except ImportError as e:
 
 # Import optimized ensemble system
 try:
-    from ..ensemble.optimized_ensemble import OptimizedEnsemble
-    from ..ensemble.simplified_confidence import SimplifiedConfidenceEstimator
-    from ..feature_engineering.unified_extractor import UnifiedFeatureExtractor
+    from src.ensemble.optimized_ensemble import OptimizedEnsemble
+    from src.feature_engineering.unified_extractor import UnifiedFeatureExtractor
     HAS_OPTIMIZED_ENSEMBLE = True
 except ImportError as e:
     print(f"Warning: Optimized ensemble not available: {e}")
@@ -55,16 +54,11 @@ except ImportError as e:
     print(f"Warning: Knowledge transfer not available: {e}")
     HAS_KNOWLEDGE_TRANSFER = False
 
+from src.config.settings import get_model_config, get_all_models
+
 class AdvancedModelManager:
     """
     Advanced Model Manager for JetX Prediction System
-    
-    Features:
-    - Manages both deep learning and statistical models
-    - Automatic model selection based on performance
-    - Lazy loading of heavy models
-    - Ensemble predictions
-    - Model performance tracking
     """
     
     def __init__(self, models_dir: str = "trained_models", db_path: str = "jetx_data.db",
@@ -75,30 +69,21 @@ class AdvancedModelManager:
         self.max_prediction_value = max_prediction_value
         self.create_directories()
         
-        # Model registry
-        self.models = {}
-        self.model_performances = {}
-        self.model_metadata = {}
-        self.model_configs = {}
+        self.models: Dict[str, Any] = {}
+        self.model_performances: Dict[str, Any] = {}
+        self.model_metadata: Dict[str, Any] = {}
         
-        # Training state
         self.is_initialized = False
-        self.auto_train_heavy_models = False  # Default: manual training
+        self.auto_train_heavy_models = False
         self.dependency_error = DEEP_MODELS_ERROR
         self.light_model_dependency_error = EXISTING_MODELS_ERROR
         
-        # Optimized ensemble system
-        self.optimized_ensemble = None
-        self.confidence_estimator = None
-        self.feature_extractor = None
+        self.optimized_ensemble: Optional[OptimizedEnsemble] = None
+        self.feature_extractor: Optional[UnifiedFeatureExtractor] = None
         self.use_optimized_ensemble = HAS_OPTIMIZED_ENSEMBLE
         
-        # Knowledge transfer system
-        self.heavy_knowledge = None
+        self.heavy_knowledge: Optional[HeavyModelKnowledge] = None
         self.knowledge_transfer_enabled = HAS_KNOWLEDGE_TRANSFER
-        
-        # Model configurations
-        self.setup_model_configs()
         
     def create_directories(self):
         """Create necessary directories"""
@@ -110,747 +95,226 @@ class AdvancedModelManager:
             os.path.join(self.models_dir, "metadata"),
             os.path.join(self.models_dir, "backup")
         ]
-        
         for directory in directories:
             os.makedirs(directory, exist_ok=True)
     
-    def setup_model_configs(self):
-        """Setup model configurations"""
-        self.model_configs = {
-            # Deep Learning Models
-            'n_beats': {
-                'sequence_length': 200,
-                'hidden_size': 256,
-                'num_stacks': 3,
-                'num_blocks': 3,
-                'learning_rate': 0.001,
-                'is_heavy': True
-            },
-            'tft': {
-                'sequence_length': 200,
-                'hidden_size': 256,
-                'num_heads': 8,
-                'num_layers': 2,
-                'learning_rate': 0.001,
-                'is_heavy': True
-            },
-            'informer': {
-                'sequence_length': 200,
-                'd_model': 512,
-                'n_heads': 8,
-                'e_layers': 2,
-                'd_layers': 1,
-                'learning_rate': 0.001,
-                'is_heavy': True
-            },
-            'autoformer': {
-                'sequence_length': 200,
-                'd_model': 512,
-                'n_heads': 8,
-                'e_layers': 2,
-                'd_layers': 1,
-                'learning_rate': 0.001,
-                'is_heavy': True
-            },
-            'pathformer': {
-                'sequence_length': 200,
-                'd_model': 512,
-                'n_heads': 8,
-                'num_layers': 6,
-                'path_length': 3,
-                'learning_rate': 0.001,
-                'is_heavy': True
-            },
-            # Statistical Models (Light)
-            'light_ensemble': {
-                'is_heavy': False
-            },
-            'hybrid_predictor': {
-                'is_heavy': False
-            },
-            'crash_detector': {
-                'is_heavy': False
-            }
-        }
-    
     def initialize_models(self, data: List[float], auto_train_heavy: bool = False):
-        """
-        Initialize all models
-        
-        Args:
-            data: Training data
-            auto_train_heavy: Whether to automatically train heavy models
-        """
+        """Initialize all models"""
         print("Initializing Advanced Model Manager...")
-        
         self.auto_train_heavy_models = auto_train_heavy
-        
-        # Initialize light models first
         self.initialize_light_models(data)
-        
-        # Initialize heavy models if requested
         if auto_train_heavy:
             self.initialize_heavy_models(data)
         else:
             self.initialize_heavy_models_lazy()
-        
-        # Initialize optimized ensemble if available
         if self.use_optimized_ensemble:
             self.initialize_optimized_ensemble(data)
-        
         self.is_initialized = True
         print("Model initialization completed.")
     
     def initialize_light_models(self, data: List[float]):
         """Initialize light statistical models"""
-        print("Initializing light models...")
-        
-        if HAS_EXISTING_MODELS:
-            # Light ensemble
-            try:
-                light_models = create_enhanced_light_models()
-                light_ensemble = LightModelEnsemble(threshold=1.5)
-                for name, model in light_models.items():
-                    light_ensemble.add_model(name, model)
-                self.models['light_ensemble'] = light_ensemble
-                print("✓ Light ensemble initialized")
-            except Exception as e:
-                print(f"✗ Light ensemble failed: {e}")
-            
-            # Hybrid predictor
-            try:
-                self.models['hybrid_predictor'] = HybridPredictor(self.models_dir)
-                print("✓ Hybrid predictor initialized")
-            except Exception as e:
-                print(f"✗ Hybrid predictor failed: {e}")
-            
-            # Crash detector
-            try:
-                self.models['crash_detector'] = CrashDetector()
-                print("✓ Crash detector initialized")
-            except Exception as e:
-                print(f"✗ Crash detector failed: {e}")
+        if not HAS_EXISTING_MODELS: return
+        try:
+            light_models = create_enhanced_light_models()
+            light_ensemble = LightModelEnsemble(threshold=1.5)
+            for name, model in light_models.items():
+                light_ensemble.add_model(name, model)
+            self.models['light_ensemble'] = light_ensemble
+            self.models['hybrid_predictor'] = HybridPredictor(self.models_dir)
+            self.models['crash_detector'] = CrashDetector()
+            print("✓ Light models initialized")
+        except Exception as e:
+            print(f"✗ Light models initialization failed: {e}")
     
     def initialize_heavy_models_lazy(self):
-        """Initialize heavy models without training (lazy loading)"""
-        print("Initializing heavy models (lazy loading)...")
-        
-        if not HAS_DEEP_MODELS:
-            print("Deep learning models not available")
-            return
-        
-        # Initialize model instances without training
-        for model_name, config in self.model_configs.items():
+        """Initialize heavy models without training"""
+        if not HAS_DEEP_MODELS: return
+        for model_name in get_all_models():
+            config = get_model_config(model_name)
             if config.get('is_heavy', False):
                 try:
-                    model = self.create_model_instance(model_name, config)
+                    model = self.create_model_instance(model_name, config.get('params', {}))
                     self.models[model_name] = model
-                    print(f"✓ {model_name} initialized (not trained)")
                 except Exception as e:
-                    print(f"✗ {model_name} failed: {e}")
+                    print(f"✗ {model_name} lazy init failed: {e}")
     
     def initialize_heavy_models(self, data: List[float]):
         """Initialize and train heavy models"""
-        print("Initializing and training heavy models...")
-        
-        if not HAS_DEEP_MODELS:
-            print("Deep learning models not available")
-            return
-        
-        for model_name, config in self.model_configs.items():
+        if not HAS_DEEP_MODELS: return
+        for model_name in get_all_models():
+            config = get_model_config(model_name)
             if config.get('is_heavy', False):
-                try:
-                    print(f"Training {model_name}...")
-                    model = self.create_model_instance(model_name, config)
-                    
-                    # Train the model
-                    history = model.train(data, epochs=50, verbose=False)
-                    
-                    # Save the model
-                    model_path = os.path.join(self.models_dir, "deep_learning", f"{model_name}.pth")
-                    model.save_model(model_path)
-                    
-                    self.models[model_name] = model
-                    self.model_performances[model_name] = history
-                    print(f"✓ {model_name} trained and saved")
-                    
-                except Exception as e:
-                    print(f"✗ {model_name} training failed: {e}")
-    
+                self.train_heavy_model(model_name, data, epochs=50)
+
     def create_model_instance(self, model_name: str, config: Dict) -> Any:
-        """Create a model instance based on name and config"""
-        model_class_map = {
-            'n_beats': NBeatsPredictor,
-            'tft': TFTPredictor,
-            'informer': InformerPredictor,
-            'autoformer': AutoformerPredictor,
+        """Create a model instance"""
+        model_map = {
+            'n_beats': NBeatsPredictor, 'tft': EnhancedTFTPredictor,
+            'informer': InformerPredictor, 'autoformer': AutoformerPredictor,
             'pathformer': PathformerPredictor
         }
-        
-        if model_name not in model_class_map:
+        if model_name not in model_map:
             raise ValueError(f"Unknown model: {model_name}")
-            
-        # Filter out keys that are not part of the model's __init__
-        model_specific_config = {k: v for k, v in config.items() if k != 'is_heavy'}
-        
-        return model_class_map[model_name](**model_specific_config)
+        return model_map[model_name](**config)
     
     def train_heavy_model(self, model_name: str, data: List[float], epochs: int = 100) -> Dict:
-        """
-        Train a specific heavy model
-        
-        Args:
-            model_name: Name of the model to train
-            data: Training data
-            epochs: Number of training epochs
-            
-        Returns:
-            Training history
-        """
-        if not HAS_DEEP_MODELS:
-            raise ValueError("Deep learning models not available")
-        
-        if model_name not in self.model_configs:
-            raise ValueError(f"Unknown model: {model_name}")
-        
-        config = self.model_configs[model_name]
-        if not config.get('is_heavy', False):
-            raise ValueError(f"{model_name} is not a heavy model")
+        """Train a specific heavy model"""
+        config = get_model_config(model_name)
+        if not config or not config.get('is_heavy'):
+            raise ValueError(f"Invalid or not a heavy model: {model_name}")
         
         print(f"Training {model_name}...")
-        
-        # Create and train model
-        model = self.create_model_instance(model_name, config)
-        
-        # Make sure model is created before training
-        if model is None:
-            raise ValueError(f"Failed to create model instance for {model_name}")
-
+        model = self.create_model_instance(model_name, config.get('params', {}))
         history = model.train(data, epochs=epochs, verbose=True)
         
-        # Save model
         model_path = os.path.join(self.models_dir, "deep_learning", f"{model_name}.pth")
         model.save_model(model_path)
         
-        # Update registry
         self.models[model_name] = model
         self.model_performances[model_name] = history
-        
         print(f"✓ {model_name} training completed")
         return history
     
     def load_trained_model(self, model_name: str) -> bool:
-        """
-        Load a pre-trained model
-        
-        Args:
-            model_name: Name of the model to load
-            
-        Returns:
-            Success status
-        """
+        """Load a pre-trained model"""
         model_path = os.path.join(self.models_dir, "deep_learning", f"{model_name}.pth")
-        
-        if not os.path.exists(model_path):
-            print(f"Model file not found: {model_path}")
-            return False
-        
+        if not os.path.exists(model_path): return False
         try:
-            config = self.model_configs[model_name]
-            model = self.create_model_instance(model_name, config)
+            config = get_model_config(model_name)
+            model = self.create_model_instance(model_name, config.get('params', {}))
             model.load_model(model_path)
             self.models[model_name] = model
-            print(f"✓ {model_name} loaded successfully")
             return True
         except Exception as e:
             print(f"✗ Failed to load {model_name}: {e}")
             return False
     
     def predict_with_model(self, model_name: str, sequence: List[float]) -> Optional[float]:
-        """
-        Make prediction with a specific model
-        
-        Args:
-            model_name: Name of the model to use
-            sequence: Input sequence
-            
-        Returns:
-            Prediction or None if failed
-        """
-        if model_name not in self.models:
-            print(f"Model {model_name} not available")
-            return None
-        
+        """Make prediction with a specific model"""
+        if model_name not in self.models: return None
         try:
             model = self.models[model_name]
+            if hasattr(model, 'is_trained') and not model.is_trained: return None
             
-            # Comprehensive model training check
-            if hasattr(model, 'is_trained'):
-                if not model.is_trained:
-                    print(f"Model {model_name} is not trained")
-                    return None
-            elif hasattr(model, 'model') and hasattr(model.model, 'training'):
-                # For PyTorch models, check if model exists and is not in training mode
-                if model.model is None:
-                    print(f"Model {model_name} is not initialized")
-                    return None
+            config = get_model_config(model_name).get('params', {})
+            seq_len = config.get('sequence_length', 200)
+            if len(sequence) != seq_len: return None
             
-            # Validate sequence length
-            if hasattr(model, 'sequence_length'):
-                if len(sequence) != model.sequence_length:
-                    print(f"Model {model_name} expects sequence length {model.sequence_length}, got {len(sequence)}")
-                    return None
-            
-            # Make prediction with error handling
             prediction = model.predict(sequence)
-            
-            # Validate prediction
-            if prediction is None:
-                print(f"Model {model_name} returned None prediction")
-                return None
-            
-            if isinstance(prediction, (int, float)):
-                # Ensure prediction is reasonable
-                if not (self.min_prediction_value <= prediction <= self.max_prediction_value):
-                    print(f"Model {model_name} prediction out of bounds: {prediction}")
-                    return None
-                return float(prediction)
-            else:
-                print(f"Model {model_name} returned invalid prediction type: {type(prediction)}")
-                return None
-            
-        except Exception as e:
-            print(f"Prediction failed for {model_name}: {e}")
+            if isinstance(prediction, (int, float)) and np.isfinite(prediction):
+                return float(np.clip(prediction, self.min_prediction_value, self.max_prediction_value))
+            return None
+        except Exception:
             return None
     
     def ensemble_predict(self, sequence: List[float], weights: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-        """
-        Make ensemble prediction using all available models
+        """Make ensemble prediction"""
+        predictions = {name: self.predict_with_model(name, sequence) for name in self.models}
+        valid_preds = {k: v for k, v in predictions.items() if v is not None}
         
-        Args:
-            sequence: Input sequence
-            weights: Optional weights for each model
-            
-        Returns:
-            Dictionary with predictions and ensemble result
-        """
-        predictions = {}
-        valid_predictions = []
-        model_names = []
+        if not valid_preds:
+            return {'ensemble_prediction': None, 'confidence': 0.0, 'model_count': 0}
         
-        # Get predictions from all models
-        for model_name in self.models:
-            pred = self.predict_with_model(model_name, sequence)
-            if pred is not None:
-                predictions[model_name] = pred
-                valid_predictions.append(pred)
-                model_names.append(model_name)
-        
-        if not valid_predictions:
-            return {
-                'predictions': predictions,
-                'ensemble_prediction': None,
-                'confidence': 0.0,
-                'model_count': 0
-            }
-        
-        # Calculate ensemble prediction
         if weights is None:
-            # Equal weights
-            weights = {name: 1.0 / len(valid_predictions) for name in model_names}
+            weights = {name: 1.0 / len(valid_preds) for name in valid_preds}
         
-        # Weighted average
-        ensemble_pred = sum(pred * weights[name] for pred, name in zip(valid_predictions, model_names))
-        
-        # Calculate confidence based on prediction variance
-        variance = float(np.var(valid_predictions))
-        confidence = max(0.0, 1.0 - variance / 10.0)  # Normalize confidence
+        ensemble_pred = sum(v * weights.get(k, 0) for k, v in valid_preds.items())
+        variance = float(np.var(list(valid_preds.values())))
+        confidence = max(0.0, 1.0 - variance / 10.0)
         
         return {
-            'predictions': predictions,
-            'ensemble_prediction': ensemble_pred,
-            'confidence': confidence,
-            'model_count': len(valid_predictions),
-            'weights': weights
+            'predictions': valid_preds, 'ensemble_prediction': ensemble_pred,
+            'confidence': confidence, 'model_count': len(valid_preds), 'weights': weights
         }
     
     def get_model_status(self) -> Dict[str, Any]:
         """Get status of all models"""
         status = {}
-        
-        for model_name in self.model_configs:
-            config = self.model_configs[model_name]
+        for model_name in get_all_models():
+            config = get_model_config(model_name)
             is_loaded = model_name in self.models
-            is_trained = False
-            
-            if is_loaded:
-                model = self.models[model_name]
-                if hasattr(model, 'is_trained'):
-                    is_trained = model.is_trained
-                else:
-                    is_trained = True  # Assume statistical models are always ready
-            
+            is_trained = is_loaded and getattr(self.models.get(model_name), 'is_trained', True)
             status[model_name] = {
-                'loaded': is_loaded,
-                'trained': is_trained,
+                'loaded': is_loaded, 'trained': is_trained,
                 'is_heavy': config.get('is_heavy', False),
-                'performance': self.model_performances.get(model_name, None)
+                'performance': self.model_performances.get(model_name)
             }
-        
         return status
     
     def save_all_models(self):
         """Save all models"""
-        print("Saving all models...")
-        
-        for model_name, model in self.models.items():
-            try:
-                if hasattr(model, 'save_model'):
-                    model_path = os.path.join(self.models_dir, "deep_learning", f"{model_name}.pth")
-                    model.save_model(model_path)
-                    print(f"✓ {model_name} saved")
-            except Exception as e:
-                print(f"✗ Failed to save {model_name}: {e}")
-        
-        # Save metadata
-        metadata = {
-            'model_performances': self.model_performances,
-            'model_metadata': self.model_metadata,
-            'model_configs': self.model_configs
-        }
+        for name, model in self.models.items():
+            if hasattr(model, 'save_model'):
+                path = os.path.join(self.models_dir, "deep_learning", f"{name}.pth")
+                model.save_model(path)
         
         metadata_path = os.path.join(self.models_dir, "metadata", "manager_metadata.pkl")
         with open(metadata_path, 'wb') as f:
-            pickle.dump(metadata, f)
-        
-        print("✓ Metadata saved")
+            pickle.dump({'model_performances': self.model_performances, 'model_metadata': self.model_metadata}, f)
     
     def load_all_models(self):
         """Load all saved models"""
-        print("Loading all models...")
-        
-        # Load metadata
         metadata_path = os.path.join(self.models_dir, "metadata", "manager_metadata.pkl")
         if os.path.exists(metadata_path):
             with open(metadata_path, 'rb') as f:
                 metadata = pickle.load(f)
                 self.model_performances = metadata.get('model_performances', {})
                 self.model_metadata = metadata.get('model_metadata', {})
-                self.model_configs.update(metadata.get('model_configs', {}))
         
-        # Load deep learning models
-        deep_models_dir = os.path.join(self.models_dir, "deep_learning")
-        if os.path.exists(deep_models_dir):
-            for model_name in self.model_configs:
-                if self.model_configs[model_name].get('is_heavy', False):
-                    self.load_trained_model(model_name)
-        
-        print("✓ All models loaded")
+        for model_name in get_all_models():
+            if get_model_config(model_name).get('is_heavy', False):
+                self.load_trained_model(model_name)
     
     def retrain_models(self, data: List[float], model_names: Optional[List[str]] = None):
-        """
-        Retrain specified models or all models
-        
-        Args:
-            data: Training data
-            model_names: List of model names to retrain (None for all)
-        """
-        if model_names is None:
-            model_names = list(self.model_configs.keys())
-        
-        print(f"Retraining models: {model_names}")
-        
-        for model_name in model_names:
-            if model_name in self.model_configs:
-                config = self.model_configs[model_name]
-                
-                if config.get('is_heavy', False):
-                    # Retrain heavy model
-                    try:
-                        self.train_heavy_model(model_name, data, epochs=50)
-                    except Exception as e:
-                        print(f"Failed to retrain {model_name}: {e}")
-                else:
-                    # Retrain light model (if supported)
-                    if model_name in self.models:
-                        model = self.models[model_name]
-                        if hasattr(model, 'retrain'):
-                            try:
-                                model.retrain(data)
-                                print(f"✓ {model_name} retrained")
-                            except Exception as e:
-                                print(f"Failed to retrain {model_name}: {e}")
-    
+        """Retrain specified models or all models"""
+        if model_names is None: model_names = get_all_models()
+        for name in model_names:
+            if get_model_config(name).get('is_heavy', False):
+                self.train_heavy_model(name, data, epochs=50)
+
     def get_best_models(self, top_k: int = 3) -> List[str]:
-        """
-        Get the best performing models based on validation loss
-        
-        Args:
-            top_k: Number of top models to return
-            
-        Returns:
-            List of model names
-        """
-        model_scores = []
-        
-        for model_name, performance in self.model_performances.items():
-            if performance and 'val_losses' in performance:
-                # Use the best validation loss
-                best_val_loss = min(performance['val_losses'])
-                model_scores.append((model_name, best_val_loss))
-        
-        # Sort by validation loss (lower is better)
-        model_scores.sort(key=lambda x: x[1])
-        
-        return [model_name for model_name, _ in model_scores[:top_k]]
+        """Get the best performing models"""
+        scores = [
+            (name, min(p['val_losses'])) for name, p in self.model_performances.items() 
+            if p and 'val_losses' in p and p['val_losses']
+        ]
+        scores.sort(key=lambda x: x[1])
+        return [name for name, _ in scores[:top_k]]
 
     def initialize_optimized_ensemble(self, data: List[float]):
         """Initialize optimized ensemble system"""
-        if not HAS_OPTIMIZED_ENSEMBLE:
-            print("Optimized ensemble not available")
-            return
-        
-        print("Initializing optimized ensemble system...")
-        
+        if not HAS_OPTIMIZED_ENSEMBLE: return
         try:
-            # Initialize feature extractor
-            self.feature_extractor = UnifiedFeatureExtractor(
-                sequence_length=200,
-                window_sizes=[5, 10, 20, 50, 100],
-                threshold=1.5
-            )
-            
-            # Fit feature extractor if enough data
-            if len(data) >= 200:
-                self.feature_extractor.fit(data)
-                print("✓ Feature extractor fitted")
-            else:
-                print("⚠️  Not enough data to fit feature extractor")
-            
-            # Initialize confidence estimator
-            self.confidence_estimator = SimplifiedConfidenceEstimator(history_window=200)
-            print("✓ Confidence estimator initialized")
-            
-            # Initialize optimized ensemble
-            self.optimized_ensemble = OptimizedEnsemble(
-                models=self.models,
-                threshold=float(1.5),
-                performance_window=100,
-                max_model_errors=10  # More tolerant error limit
-            )
+            self.feature_extractor = UnifiedFeatureExtractor()
+            if len(data) >= 200: self.feature_extractor.fit(data)
+            self.optimized_ensemble = OptimizedEnsemble(models=self.models, threshold=1.5)
             print("✓ Optimized ensemble initialized")
-            
         except Exception as e:
             print(f"✗ Failed to initialize optimized ensemble: {e}")
             self.use_optimized_ensemble = False
 
     def predict_with_optimized_ensemble(self, sequence: List[float]) -> Dict[str, Any]:
-        """
-        Make prediction using optimized ensemble system
-        
-        Args:
-            sequence: Input sequence
-            
-        Returns:
-            Dictionary with enhanced prediction results
-        """
-        if not self.use_optimized_ensemble or self.optimized_ensemble is None:
-            # Fallback to regular ensemble
+        """Make prediction using optimized ensemble system"""
+        if not self.use_optimized_ensemble or not self.optimized_ensemble:
             return self.ensemble_predict(sequence)
-        
         try:
-            # Get prediction from optimized ensemble
             result = self.optimized_ensemble.predict_next_value(sequence)
-            
-            if result is None:
-                return {
-                    'predictions': {},
-                    'ensemble_prediction': None,
-                    'confidence': 0.0,
-                    'model_count': 0,
-                    'optimized': False
-                }
-            
-            predicted_value, above_prob, confidence = result
-            
-            # Get individual model predictions for confidence estimation
-            model_predictions = {}
-            for model_name, model in self.models.items():
-                try:
-                    pred = self.predict_with_model(model_name, sequence)
-                    if pred is not None:
-                        model_predictions[model_name] = {
-                            'value': pred,
-                            'probability': above_prob,  # Use ensemble probability
-                            'confidence': confidence
-                        }
-                except:
-                    continue
-            
-            # Enhanced confidence estimation
-            if self.confidence_estimator is not None:
-                confidence_analysis = self.confidence_estimator.estimate_confidence(
-                    model_predictions, above_prob
-                )
-                
-                enhanced_confidence = confidence_analysis['confidence_score']
-                confidence_level = confidence_analysis['confidence_level']
-                recommendation = confidence_analysis['recommendation']
-            else:
-                enhanced_confidence = confidence
-                confidence_level = "Medium"
-                recommendation = "Standard confidence"
-            
+            if result is None: return {'ensemble_prediction': None, 'confidence': 0.0}
+            pred_val, above_prob, conf = result
             return {
-                'predictions': model_predictions,
-                'ensemble_prediction': predicted_value,
-                'above_threshold_probability': above_prob,
-                'confidence': enhanced_confidence,
-                'confidence_level': confidence_level,
-                'recommendation': recommendation,
-                'model_count': len(model_predictions),
-                'optimized': True,
-                'ensemble_stats': self.optimized_ensemble.get_ensemble_stats() if self.optimized_ensemble else {}
+                'ensemble_prediction': pred_val, 'above_threshold_probability': above_prob,
+                'confidence': conf, 'optimized': True
             }
-            
         except Exception as e:
             print(f"Optimized ensemble prediction failed: {e}")
-            # Fallback to regular ensemble
             return self.ensemble_predict(sequence)
 
-    def update_optimized_ensemble_performance(self, actual_value: float, prediction_id: Optional[str] = None):
-        """
-        Update optimized ensemble performance with actual result
-        
-        Args:
-            actual_value: Actual JetX value
-            prediction_id: Optional prediction ID for tracking
-        """
-        if not self.use_optimized_ensemble:
-            return
-        
-        # Update optimized ensemble performance
-        if self.optimized_ensemble is not None:
-            try:
-                self.optimized_ensemble.update_performance(actual_value, prediction_id)
-            except Exception as e:
-                print(f"Failed to update optimized ensemble performance: {e}")
-        
-        # Update confidence estimator
-        if self.confidence_estimator is not None:
-            try:
-                self.confidence_estimator.add_prediction_result(
-                    prediction=actual_value,
-                    actual_value=actual_value,
-                    model_predictions=None  # Will be added later if needed
-                )
-            except Exception as e:
-                print(f"Failed to update confidence estimator: {e}")
+    def get_dependency_error(self) -> Optional[str]:
+        """Returns the dependency error message if any"""
+        errors = [e for e in [self.dependency_error, self.light_model_dependency_error] if e]
+        return "\n".join(errors) if errors else None
 
-    def get_optimized_ensemble_info(self) -> Dict[str, Any]:
-        """Get optimized ensemble information"""
-        if not self.use_optimized_ensemble:
-            return {
-                'available': False,
-                'reason': 'Optimized ensemble not available'
-            }
-        
-        info = {
-            'available': True,
-            'ensemble_stats': {},
-            'confidence_stats': {},
-            'feature_extractor_info': {}
-        }
-        
-        # Ensemble stats
-        if self.optimized_ensemble is not None:
-            info['ensemble_stats'] = self.optimized_ensemble.get_ensemble_stats()
-            info['model_info'] = self.optimized_ensemble.get_model_info()
-        
-        # Confidence stats
-        if self.confidence_estimator is not None:
-            info['confidence_stats'] = self.confidence_estimator.get_performance_summary()
-        
-        # Feature extractor info
-        if self.feature_extractor is not None:
-            info['feature_extractor_info'] = self.feature_extractor.get_info()
-        
-        return info
-
-    def save_optimized_ensemble(self):
-        """Save optimized ensemble state"""
-        if not self.use_optimized_ensemble:
-            return
-        
-        ensemble_dir = os.path.join(self.models_dir, "ensemble")
-        
-        try:
-            # Save optimized ensemble
-            if self.optimized_ensemble is not None:
-                ensemble_path = os.path.join(ensemble_dir, "optimized_ensemble.pkl")
-                self.optimized_ensemble.save_ensemble_state(ensemble_path)
-                print("✓ Optimized ensemble state saved")
-            
-            # Save confidence estimator
-            if self.confidence_estimator is not None:
-                confidence_path = os.path.join(ensemble_dir, "confidence_estimator.pkl")
-                self.confidence_estimator.save_confidence_state(confidence_path)
-                print("✓ Confidence estimator state saved")
-            
-            # Save feature extractor
-            if self.feature_extractor is not None:
-                extractor_path = os.path.join(ensemble_dir, "feature_extractor.pkl")
-                self.feature_extractor.save_extractor(extractor_path)
-                print("✓ Feature extractor state saved")
-                
-        except Exception as e:
-            print(f"Failed to save optimized ensemble: {e}")
-
-    def load_optimized_ensemble(self):
-        """Load optimized ensemble state"""
-        if not HAS_OPTIMIZED_ENSEMBLE:
-            return False
-        
-        ensemble_dir = os.path.join(self.models_dir, "ensemble")
-        
-        if not os.path.exists(ensemble_dir):
-            return False
-        
-        try:
-            # Load feature extractor
-            extractor_path = os.path.join(ensemble_dir, "feature_extractor.pkl")
-            if os.path.exists(extractor_path):
-                self.feature_extractor = UnifiedFeatureExtractor()
-                if self.feature_extractor.load_extractor(extractor_path):
-                    print("✓ Feature extractor loaded")
-                else:
-                    self.feature_extractor = None
-            
-            # Load confidence estimator
-            confidence_path = os.path.join(ensemble_dir, "confidence_estimator.pkl")
-            if os.path.exists(confidence_path):
-                self.confidence_estimator = SimplifiedConfidenceEstimator()
-                if self.confidence_estimator.load_confidence_state(confidence_path):
-                    print("✓ Confidence estimator loaded")
-                else:
-                    self.confidence_estimator = None
-            
-            # Load optimized ensemble
-            ensemble_path = os.path.join(ensemble_dir, "optimized_ensemble.pkl")
-            if os.path.exists(ensemble_path):
-                self.optimized_ensemble = OptimizedEnsemble(models=self.models)
-                if self.optimized_ensemble.load_ensemble_state(ensemble_path):
-                    print("✓ Optimized ensemble loaded")
-                    self.use_optimized_ensemble = True
-                    return True
-                else:
-                    self.optimized_ensemble = None
-            
-            return False
-            
-        except Exception as e:
-            print(f"Failed to load optimized ensemble: {e}")
-            return False
 
     def predict_with_ensemble(self, sequence: List[float], use_optimized: bool = True) -> Dict[str, Any]:
         """
@@ -867,302 +331,3 @@ class AdvancedModelManager:
             return self.predict_with_optimized_ensemble(sequence)
         else:
             return self.ensemble_predict(sequence)
-
-    def retrain_optimized_ensemble(self, data: List[float]):
-        """Retrain optimized ensemble components"""
-        if not self.use_optimized_ensemble:
-            return
-        
-        print("Retraining optimized ensemble...")
-        
-        try:
-            # Retrain feature extractor
-            if self.feature_extractor is not None and len(data) >= 200:
-                self.feature_extractor.fit(data)
-                print("✓ Feature extractor retrained")
-            
-            # Reset confidence estimator
-            if self.confidence_estimator is not None:
-                self.confidence_estimator.reset_performance()
-                print("✓ Confidence estimator reset")
-            
-            # Reset optimized ensemble
-            if self.optimized_ensemble is not None:
-                self.optimized_ensemble.reset_performance()
-                print("✓ Optimized ensemble reset")
-            
-            print("✓ Optimized ensemble retraining completed")
-            
-        except Exception as e:
-            print(f"Failed to retrain optimized ensemble: {e}")
-
-    def extract_knowledge_from_heavy_models(self) -> Optional[Any]:
-        """Extracts knowledge from heavy models"""
-        if not self.knowledge_transfer_enabled:
-            print("Knowledge transfer not available")
-            return None
-        
-        print("Extracting knowledge from heavy models...")
-        
-        try:
-            # Create HeavyModelKnowledge instance
-            from .enhanced_light_models import HeavyModelKnowledge
-            knowledge = HeavyModelKnowledge()
-            
-            # Add pattern weights (example - to be replaced with real extraction)
-            knowledge.add_pattern_weight("high_volatility", 1.2)
-            knowledge.add_pattern_weight("low_values", 1.3)
-            knowledge.add_pattern_weight("high_values", 0.8)
-            knowledge.add_pattern_weight("consecutive_highs", 0.7)
-            knowledge.add_pattern_weight("oscillation", 1.1)
-            
-            # Add threshold adjustments
-            knowledge.add_threshold_adjustment("high_volatility", -0.1)
-            knowledge.add_threshold_adjustment("low_values", 0.05)
-            knowledge.add_threshold_adjustment("high_values", -0.05)
-            
-            # Extract real knowledge from models
-            if self.models:
-                self._extract_patterns_from_models(knowledge)
-            
-            self.heavy_knowledge = knowledge
-            print("✅ Knowledge successfully extracted from heavy models")
-            return knowledge
-            
-        except Exception as e:
-            print(f"Error extracting knowledge from heavy models: {e}")
-            return None
-    
-    def _extract_patterns_from_models(self, knowledge: Any):
-        """Extracts pattern information from models"""
-        try:
-            # For each heavy model
-            for model_name, model in self.models.items():
-                if self.model_configs[model_name].get('is_heavy', False):
-                    if hasattr(model, 'model') and hasattr(model.model, 'state_dict'):
-                        # Extract from PyTorch models
-                        self._extract_from_torch_model(model, knowledge, model_name)
-                    elif hasattr(model, 'get_feature_importance'):
-                        # Extract from scikit-learn style models
-                        self._extract_from_sklearn_model(model, knowledge, model_name)
-        except Exception as e:
-            print(f"Pattern extraction error: {e}")
-    
-    def _extract_from_torch_model(self, model: Any, knowledge: Any, model_name: str):
-        """Extracts information from a PyTorch model"""
-        try:
-            # Extract patterns from model weights (simple example)
-            if hasattr(model, 'get_attention_weights'):
-                # Extract important patterns from attention weights
-                attention_weights = model.get_attention_weights()
-                
-                # Determine patterns with the highest attention
-                top_patterns = self._analyze_attention_patterns(attention_weights)
-                
-                for pattern, weight in top_patterns.items():
-                    knowledge.add_pattern_weight(f"{model_name}_{pattern}", weight)
-            
-            # Extract threshold adjustment from model performance
-            if hasattr(model, 'get_performance_metrics'):
-                metrics = model.get_performance_metrics()
-                if metrics and 'accuracy' in metrics:
-                    # Threshold adjustments for high-accuracy models
-                    if metrics['accuracy'] > 0.8:
-                        knowledge.add_threshold_adjustment(f"{model_name}_high_acc", 0.02)
-                    elif metrics['accuracy'] < 0.6:
-                        knowledge.add_threshold_adjustment(f"{model_name}_low_acc", -0.02)
-        except Exception as e:
-            print(f"Torch model extraction error for {model_name}: {e}")
-    
-    def _extract_from_sklearn_model(self, model: Any, knowledge: Any, model_name: str):
-        """Extracts information from a scikit-learn model"""
-        try:
-            # Extract feature importance
-            if hasattr(model, 'model') and hasattr(model.model, 'feature_importances_') and hasattr(model, 'feature_names'):
-                importances = model.model.feature_importances_
-                feature_names = model.feature_names
-                
-                if len(importances) == len(feature_names):
-                    # Combine names and importances and sort
-                    feature_importance_dict = dict(zip(feature_names, importances))
-                    
-                    # Add to knowledge
-                    for name, importance_score in feature_importance_dict.items():
-                        knowledge.add_feature_importance(f"{model_name}_{name}", float(importance_score))
-                    print(f"✅ Extracted {len(feature_names)} feature importances from {model_name}")
-
-            # Extract threshold information from decision trees
-            if hasattr(model, 'tree_'):
-                thresholds = self._extract_decision_thresholds(model.tree_)
-                for condition, threshold in thresholds.items():
-                    knowledge.add_threshold_adjustment(f"{model_name}_{condition}", threshold)
-                    
-        except Exception as e:
-            print(f"Sklearn model extraction error for {model_name}: {e}")
-    
-    def _analyze_attention_patterns(self, attention_weights: Any) -> Dict[str, float]:
-        """Analyzes attention weights to find patterns"""
-        patterns = {}
-        try:
-            # Simple pattern analysis (real implementation will be more complex)
-            patterns["high_attention"] = 1.1
-            patterns["low_attention"] = 0.9
-            patterns["mixed_attention"] = 1.0
-        except:
-            pass
-        return patterns
-    
-    def _get_top_features(self, importances: Any) -> Dict[str, float]:
-        """Determines the most important features"""
-        features = {}
-        try:
-            # Sort by feature importance
-            if hasattr(importances, '__iter__'):
-                for i, importance in enumerate(importances[:10]):  # Top 10
-                    features[f"feature_{i}"] = float(importance)
-        except:
-            pass
-        return features
-    
-    def _extract_decision_thresholds(self, tree: Any) -> Dict[str, float]:
-        """Extracts decision threshold information from a decision tree"""
-        thresholds = {}
-        try:
-            # Analyze decision tree thresholds
-            thresholds["decision_threshold"] = 0.01
-        except:
-            pass
-        return thresholds
-    
-    def transfer_knowledge_to_light_models(self):
-        """Transfers knowledge from heavy models to light models"""
-        if not self.knowledge_transfer_enabled:
-            print("Knowledge transfer not available")
-            return False
-        
-        if not self.heavy_knowledge:
-            print("Heavy model knowledge not available, run extract_knowledge_from_heavy_models() first")
-            return False
-        
-        print("Transferring knowledge from heavy models to light models...")
-        
-        try:
-            # Update light models
-            for model_name, model in self.models.items():
-                if not self.model_configs[model_name].get('is_heavy', False):
-                    # If it's a light model, perform knowledge transfer
-                    if hasattr(model, 'update_with_heavy_knowledge'):
-                        model.update_with_heavy_knowledge(self.heavy_knowledge)
-                    elif hasattr(model, 'models'):
-                        # If it's an ensemble, update all sub-models
-                        if hasattr(model, 'update_with_heavy_knowledge'):
-                            model.update_with_heavy_knowledge(self.heavy_knowledge)
-            
-            print("✅ Knowledge transfer completed")
-            return True
-            
-        except Exception as e:
-            print(f"Knowledge transfer error: {e}")
-            return False
-    
-    def auto_knowledge_transfer(self):
-        """Automatic knowledge transfer"""
-        if not self.knowledge_transfer_enabled:
-            return False
-        
-        print("Starting automatic knowledge transfer...")
-        
-        # Check if heavy models are trained
-        heavy_models_trained = any(
-            model_name in self.models and
-            hasattr(self.models[model_name], 'is_trained') and
-            self.models[model_name].is_trained
-            for model_name in self.model_configs
-            if self.model_configs[model_name].get('is_heavy', False)
-        )
-        
-        if not heavy_models_trained:
-            print("Heavy models have not been trained yet")
-            return False
-        
-        # Extract knowledge
-        knowledge = self.extract_knowledge_from_heavy_models()
-        if not knowledge:
-            return False
-        
-        # Transfer to light models
-        return self.transfer_knowledge_to_light_models()
-    
-    def get_knowledge_transfer_status(self) -> Dict[str, Any]:
-        """Gets the status of knowledge transfer"""
-        status = {
-            'knowledge_transfer_enabled': self.knowledge_transfer_enabled,
-            'heavy_knowledge_available': self.heavy_knowledge is not None,
-            'heavy_models_trained': 0,
-            'light_models_with_knowledge': 0,
-            'total_heavy_models': 0,
-            'total_light_models': 0
-        }
-        
-        if self.knowledge_transfer_enabled and self.heavy_knowledge:
-            status['knowledge_summary'] = self.heavy_knowledge.get_summary()
-        
-        # Analyze model statuses
-        for model_name, config in self.model_configs.items():
-            if config.get('is_heavy', False):
-                status['total_heavy_models'] += 1
-                if (model_name in self.models and
-                    hasattr(self.models[model_name], 'is_trained') and
-                    self.models[model_name].is_trained):
-                    status['heavy_models_trained'] += 1
-            else:
-                status['total_light_models'] += 1
-                if (model_name in self.models and
-                    hasattr(self.models[model_name], 'knowledge_boost_enabled') and
-                    self.models[model_name].knowledge_boost_enabled):
-                    status['light_models_with_knowledge'] += 1
-        
-        return status
-    
-    def save_knowledge(self, filepath: str):
-        """Saves the heavy model knowledge"""
-        if self.heavy_knowledge:
-            try:
-                self.heavy_knowledge.save_knowledge(filepath)
-                print(f"✅ Heavy model knowledge saved: {filepath}")
-            except Exception as e:
-                print(f"Knowledge save error: {e}")
-        else:
-            print("No heavy model knowledge to save")
-    
-    def load_knowledge(self, filepath: str):
-        """Loads the heavy model knowledge"""
-        if not self.knowledge_transfer_enabled:
-            print("Knowledge transfer not available")
-            return False
-        
-        try:
-            from .enhanced_light_models import HeavyModelKnowledge
-            knowledge = HeavyModelKnowledge.load_knowledge(filepath)
-            
-            if knowledge:
-                self.heavy_knowledge = knowledge
-                print(f"✅ Heavy model knowledge loaded: {filepath}")
-                return True
-            else:
-                print("Knowledge loading failed")
-                return False
-                
-        except Exception as e:
-            print(f"Knowledge load error: {e}")
-            return False
-
-    def get_dependency_error(self) -> Optional[str]:
-        """Returns the dependency error message if any"""
-        errors = []
-        if self.dependency_error:
-            errors.append(self.dependency_error)
-        if self.light_model_dependency_error:
-            errors.append(self.light_model_dependency_error)
-        
-        return "\n".join(errors) if errors else None

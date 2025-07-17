@@ -1,161 +1,47 @@
 """
-Configuration settings for the JetX Prediction System
+Configuration settings for the JetX Prediction System.
+Loads settings from the central config.yaml file.
 """
 
 import os
-from typing import Dict, Any
+import yaml
+from typing import Dict, Any, List
 
-# Database settings
-DATABASE_PATH = "data/jetx_data.db"
-MODELS_DIR = "trained_models"
+# --- Merkezi Konfigürasyon Yükleyici ---
 
-# Model configurations
-MODEL_CONFIGS = {
-    # Deep Learning Models
-    'n_beats': {
-        'sequence_length': 200,
-        'hidden_size': 256,
-        'num_stacks': 3,
-        'num_blocks': 3,
-        'learning_rate': 0.001,
-        'is_heavy': True,
-        'description': 'Neural Basis Expansion Analysis for Time Series'
-    },
-    'tft': {
-        'sequence_length': 200,
-        'hidden_size': 256,
-        'num_heads': 8,
-        'num_layers': 2,
-        'learning_rate': 0.001,
-        'is_heavy': True,
-        'description': 'Temporal Fusion Transformer'
-    },
-    'informer': {
-        'sequence_length': 200,
-        'd_model': 512,
-        'n_heads': 8,
-        'e_layers': 2,
-        'd_layers': 1,
-        'learning_rate': 0.001,
-        'is_heavy': True,
-        'description': 'Long Sequence Time Series Forecasting'
-    },
-    'autoformer': {
-        'sequence_length': 200,
-        'd_model': 512,
-        'n_heads': 8,
-        'e_layers': 2,
-        'd_layers': 1,
-        'learning_rate': 0.001,
-        'is_heavy': True,
-        'description': 'Auto-Correlation for Time Series'
-    },
-    'pathformer': {
-        'sequence_length': 200,
-        'd_model': 512,
-        'n_heads': 8,
-        'num_layers': 6,
-        'path_length': 3,
-        'learning_rate': 0.001,
-        'is_heavy': True,
-        'description': 'Path-based Attention for Time Series'
-    },
-    # Statistical Models (Light)
-    'light_ensemble': {
-        'is_heavy': False,
-        'description': 'Ensemble of Light Statistical Models'
-    },
-    'hybrid_predictor': {
-        'is_heavy': False,
-        'description': 'Hybrid Statistical Predictor'
-    },
-    'crash_detector': {
-        'is_heavy': False,
-        'description': 'Crash Detection Model'
-    }
-}
+def load_config() -> Dict[str, Any]:
+    """
+    Loads the main configuration from config.yaml.
+    Searches for the file starting from the current script's directory and going up.
+    """
+    # Proje ana dizinini bulmak için daha sağlam bir yol
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # src/config -> src -> ana dizin
+    project_root = os.path.join(current_dir, '..', '..')
+    config_path = os.path.join(project_root, 'config.yaml')
 
-# AGGRESSIVE training profiles for Colab
-AGGRESSIVE_TRAINING_PROFILES = {
-    'N-Beats': {
-        'sequence_length': 300,
-        'hidden_size': 512,
-        'num_stacks': 4,
-        'num_blocks': 4,
-        'learning_rate': 0.0005,
-        'threshold': 1.5,
-        'crash_weight': 3.0,
-        'train_params': {
-            'epochs': 75,
-            'batch_size': 32,
-            'validation_split': 0.15,
-            'verbose': True
-        }
-    },
-    'TFT': {
-        'sequence_length': 250,
-        'hidden_size': 256,
-        'num_heads': 8,
-        'num_layers': 3,
-        'learning_rate': 0.0005,
-        'threshold': 1.5,
-        'train_params': {
-            'epochs': 60,
-            'batch_size': 16,
-            'validation_split': 0.15,
-            'verbose': True
-        }
-    },
-    'LSTM': {
-        'sequence_length': 200,
-        'hidden_size': 256, # Mapped to lstm_units
-        'num_layers': 3,
-        'learning_rate': 0.0005,
-        'threshold': 1.5,
-        'train_params': {
-            'epochs': 80,
-            'batch_size': 32,
-            'validation_split': 0.15,
-            'verbose': True
-        }
-    }
-}
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file not found at: {config_path}")
 
-# Training settings
-TRAINING_CONFIG = {
-    'default_epochs': 100,
-    'batch_size': 32,
-    'validation_split': 0.2,
-    'min_data_points': 500,
-    'sequence_length': 200,
-    'threshold': 1.5
-}
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
 
-# Prediction settings
-PREDICTION_CONFIG = {
-    'confidence_thresholds': {
-        'high': 0.7,
-        'medium': 0.5,
-        'low': 0.3
-    },
-    'ensemble_weights': {
-        'deep_learning': 0.6,
-        'statistical': 0.4
-    }
-}
+# --- Global Konfigürasyon ve Yollar ---
 
-# Application settings
-APP_CONFIG = {
-    'auto_train_heavy_models': False,  # Default: manual training
-    'max_display_values': 50,
-    'update_frequency': 15,  # Retrain every N new values
-    'save_models_automatically': True
-}
+# Tüm konfigürasyonu bir kez yükle
+CONFIG = load_config()
 
-# File paths
+# Temel yolları config'den al
+_PATHS_CONFIG = CONFIG.get('paths', {})
+MODELS_DIR = _PATHS_CONFIG.get('models_dir', 'trained_models')
+DATABASE_PATH = _PATHS_CONFIG.get('database', 'data/jetx_data.db')
+LOG_FILE = _PATHS_CONFIG.get('log_file', 'jetx_prediction.log')
+
+# Dinamik olarak tam yolları oluştur
 PATHS = {
     'database': DATABASE_PATH,
     'models_dir': MODELS_DIR,
+    'log_file': LOG_FILE,
     'deep_learning_models': os.path.join(MODELS_DIR, "deep_learning"),
     'statistical_models': os.path.join(MODELS_DIR, "statistical"),
     'ensemble_models': os.path.join(MODELS_DIR, "ensemble"),
@@ -163,29 +49,42 @@ PATHS = {
     'backup': os.path.join(MODELS_DIR, "backup")
 }
 
-# Logging settings
-LOGGING_CONFIG = {
-    'level': 'INFO',
-    'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    'file': 'jetx_prediction.log'
-}
+# --- Konfigürasyon Erişim Fonksiyonları ---
+
+def get_app_config() -> Dict[str, Any]:
+    """Get application settings."""
+    return CONFIG.get('application', {})
+
+def get_training_config() -> Dict[str, Any]:
+    """Get general training settings."""
+    return CONFIG.get('training', {})
+
+def get_prediction_config() -> Dict[str, Any]:
+    """Get prediction settings."""
+    return CONFIG.get('prediction', {})
+
+def get_logging_config() -> Dict[str, Any]:
+    """Get logging settings."""
+    return CONFIG.get('logging', {})
 
 def get_model_config(model_name: str) -> Dict[str, Any]:
-    """Get configuration for a specific model"""
-    return MODEL_CONFIGS.get(model_name, {})
+    """Get configuration for a specific model."""
+    return CONFIG.get('models', {}).get(model_name, {})
 
 def get_aggressive_training_profiles() -> Dict[str, Any]:
     """Returns the aggressive training profiles for Colab."""
-    return AGGRESSIVE_TRAINING_PROFILES
+    return CONFIG.get('aggressive_training_profiles', {})
 
-def get_heavy_models() -> list:
-    """Get list of heavy models"""
-    return [name for name, config in MODEL_CONFIGS.items() if config.get('is_heavy', False)]
+def get_all_models() -> List[str]:
+    """Get list of all models."""
+    return list(CONFIG.get('models', {}).keys())
 
-def get_light_models() -> list:
-    """Get list of light models"""
-    return [name for name, config in MODEL_CONFIGS.items() if not config.get('is_heavy', False)]
+def get_heavy_models() -> List[str]:
+    """Get list of heavy models."""
+    models_config = CONFIG.get('models', {})
+    return [name for name, config in models_config.items() if config.get('is_heavy', False)]
 
-def get_all_models() -> list:
-    """Get list of all models"""
-    return list(MODEL_CONFIGS.keys())
+def get_light_models() -> List[str]:
+    """Get list of light models."""
+    models_config = CONFIG.get('models', {})
+    return [name for name, config in models_config.items() if not config.get('is_heavy', False)]

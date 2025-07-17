@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -624,16 +624,18 @@ class TFTModel(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(dropout)
         
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, return_attention: bool = False) -> Union[torch.Tensor, Tuple[torch.Tensor, List[torch.Tensor]]]:
         """
         Forward pass
         
         Args:
             x: Input tensor of shape (batch_size, seq_len, input_size)
             mask: Attention mask
+            return_attention: If True, returns attention weights along with predictions.
             
         Returns:
-            Tuple of (predictions, attention_weights)
+            - If return_attention is False: predictions (Tensor)
+            - If return_attention is True: Tuple of (predictions, attention_weights)
         """
         # Input projection
         x = self.input_projection(x)
@@ -645,7 +647,9 @@ class TFTModel(nn.Module):
         # Output projection (use last timestep)
         predictions = self.output_projection(x[:, -1, :])
         
-        return predictions, attention_weights
+        if return_attention:
+            return predictions, attention_weights
+        return predictions
 
 class TFTPredictor:
     """
