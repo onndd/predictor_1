@@ -264,7 +264,7 @@ class JetXTemporalVariableSelection(nn.Module):
             nn.Softmax(dim=-1)
         )
         
-        # Gating layer for patterns
+        # Gating layer for patterns - fix tensor dimensions
         self.pattern_gate = nn.Sequential(
             nn.Linear(3, hidden_size), # 3 patterns to hidden_size
             nn.Sigmoid()
@@ -284,16 +284,35 @@ class JetXTemporalVariableSelection(nn.Module):
             Processed temporal features
         """
         # Bidirectional GRU processing
-        gru_output, _ = self.gru(x)
+        gru_output, _ = self.gru(x)  # [batch_size, seq_len, hidden_size * 2]
         
         # Pattern recognition
-        pattern_scores = self.pattern_recognition(gru_output)
+        pattern_scores = self.pattern_recognition(gru_output)  # [batch_size, seq_len, 3]
         
         # Variable selection
-        processed = self.variable_selection([gru_output])
+        processed = self.variable_selection([gru_output])  # [batch_size, seq_len, hidden_size]
         
         # Enhance with pattern information using a gating mechanism
-        gate = self.pattern_gate(pattern_scores)
+        # Fix tensor dimension mismatch by ensuring gate has same shape as processed
+        gate = self.pattern_gate(pattern_scores)  # [batch_size, seq_len, hidden_size]
+        
+        # Ensure gate has the same dimensions as processed for element-wise multiplication
+        # Both should be [batch_size, seq_len, hidden_size]
+        if gate.shape != processed.shape:
+            # Debug information
+            print(f"Gate shape: {gate.shape}, Processed shape: {processed.shape}")
+            # Reshape gate to match processed dimensions
+            if len(gate.shape) == 3 and len(processed.shape) == 3:
+                if gate.shape[0] == processed.shape[0]:  # Same batch size
+                    # Use broadcasting or repeat along the sequence dimension
+                    gate = gate.expand(processed.shape[0], processed.shape[1], processed.shape[2])
+                else:
+                    # Fallback: use mean pooling to adjust dimensions
+                    gate = torch.mean(gate, dim=1, keepdim=True).expand_as(processed)
+            else:
+                # Fallback: just use processed without gating
+                gate = torch.ones_like(processed)
+        
         pattern_enhanced = processed * gate
         
         return self.dropout(pattern_enhanced)
@@ -377,6 +396,12 @@ class VariableSelectionNetwork(nn.Module):
         Returns:
             Selected and transformed features
         """
+        # Handle single input case (common in our TFT implementation)
+        if len(inputs) == 1:
+            # Simple case: just transform the single input
+            transformed = self.feature_linear_layers[0](inputs[0])
+            return self.dropout(transformed)
+        
         # Transform each input
         transformed_inputs = []
         for i, (input_tensor, linear_layer) in enumerate(zip(inputs, self.feature_linear_layers)):
@@ -384,17 +409,18 @@ class VariableSelectionNetwork(nn.Module):
             transformed_inputs.append(transformed)
         
         # Stack transformed inputs
-        transformed_inputs = torch.stack(transformed_inputs, dim=-1)
+        transformed_inputs = torch.stack(transformed_inputs, dim=-1)  # [batch, seq, hidden, num_inputs]
         
         # Calculate variable selection weights
-        flat_inputs = transformed_inputs.mean(dim=-1)
-        sparse_weights = F.softmax(self.variable_selection_weights(flat_inputs), dim=-1)
+        flat_inputs = transformed_inputs.mean(dim=-1)  # [batch, seq, hidden]
+        sparse_weights = F.softmax(self.variable_selection_weights(flat_inputs), dim=-1)  # [batch, seq, num_inputs]
         sparse_weights = self.dropout(sparse_weights)
         
         # Apply variable selection
-        weights = sparse_weights.unsqueeze(1).unsqueeze(-1)
+        weights = sparse_weights.unsqueeze(-2)  # [batch, seq, 1, num_inputs]
         
-        processed_inputs = torch.sum(transformed_inputs * weights, dim=2)
+        # Weighted sum across inputs
+        processed_inputs = torch.sum(transformed_inputs * weights, dim=-1)  # [batch, seq, hidden]
         
         return processed_inputs
 

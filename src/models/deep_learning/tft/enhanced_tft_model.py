@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional, Dict
 from .tft_model import *
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 class JetXTFTModel(nn.Module):
     """
