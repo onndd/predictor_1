@@ -30,13 +30,19 @@ class RollingWindowTrainer:
         self.models_trained = {}
         
     def prepare_sequences(self, data, sequence_length):
-        """Prepare sequences for training"""
+        """Prepare sequences for training, handling both lists of floats and lists of tuples."""
+        # Check if the data is a list of tuples and extract the second element if so.
+        if isinstance(data[0], tuple):
+            processed_data = [item[1] for item in data]
+        else:
+            processed_data = data
+
         sequences = []
         targets = []
         
-        for i in range(len(data) - sequence_length):
-            seq = data[i:i + sequence_length]
-            target = data[i + sequence_length]
+        for i in range(len(processed_data) - sequence_length):
+            seq = processed_data[i:i + sequence_length]
+            target = processed_data[i + sequence_length]
             
             sequences.append(seq)
             targets.append(target)
