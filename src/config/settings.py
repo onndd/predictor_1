@@ -75,6 +75,52 @@ MODEL_CONFIGS = {
     }
 }
 
+# AGGRESSIVE training profiles for Colab
+AGGRESSIVE_TRAINING_PROFILES = {
+    'N-Beats': {
+        'sequence_length': 300,
+        'hidden_size': 512,
+        'num_stacks': 4,
+        'num_blocks': 4,
+        'learning_rate': 0.0005,
+        'threshold': 1.5,
+        'crash_weight': 3.0,
+        'train_params': {
+            'epochs': 75,
+            'batch_size': 32,
+            'validation_split': 0.15,
+            'verbose': True
+        }
+    },
+    'TFT': {
+        'sequence_length': 250,
+        'hidden_size': 256,
+        'num_heads': 8,
+        'num_layers': 3,
+        'learning_rate': 0.0005,
+        'threshold': 1.5,
+        'train_params': {
+            'epochs': 60,
+            'batch_size': 16,
+            'validation_split': 0.15,
+            'verbose': True
+        }
+    },
+    'LSTM': {
+        'sequence_length': 200,
+        'hidden_size': 256, # Mapped to lstm_units
+        'num_layers': 3,
+        'learning_rate': 0.0005,
+        'threshold': 1.5,
+        'train_params': {
+            'epochs': 80,
+            'batch_size': 32,
+            'validation_split': 0.15,
+            'verbose': True
+        }
+    }
+}
+
 # Training settings
 TRAINING_CONFIG = {
     'default_epochs': 100,
@@ -127,6 +173,10 @@ LOGGING_CONFIG = {
 def get_model_config(model_name: str) -> Dict[str, Any]:
     """Get configuration for a specific model"""
     return MODEL_CONFIGS.get(model_name, {})
+
+def get_aggressive_training_profiles() -> Dict[str, Any]:
+    """Returns the aggressive training profiles for Colab."""
+    return AGGRESSIVE_TRAINING_PROFILES
 
 def get_heavy_models() -> list:
     """Get list of heavy models"""
