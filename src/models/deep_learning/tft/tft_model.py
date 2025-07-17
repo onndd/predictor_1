@@ -264,6 +264,12 @@ class JetXTemporalVariableSelection(nn.Module):
             nn.Softmax(dim=-1)
         )
         
+        # Gating layer for patterns
+        self.pattern_gate = nn.Sequential(
+            nn.Linear(3, hidden_size), # 3 patterns to hidden_size
+            nn.Sigmoid()
+        )
+        
         # Dropout
         self.dropout = nn.Dropout(dropout)
         
@@ -286,8 +292,9 @@ class JetXTemporalVariableSelection(nn.Module):
         # Variable selection
         processed = self.variable_selection([gru_output])
         
-        # Enhance with pattern information
-        pattern_enhanced = processed * pattern_scores.mean(dim=-1, keepdim=True)
+        # Enhance with pattern information using a gating mechanism
+        gate = self.pattern_gate(pattern_scores)
+        pattern_enhanced = processed * gate
         
         return self.dropout(pattern_enhanced)
 
@@ -385,18 +392,9 @@ class VariableSelectionNetwork(nn.Module):
         sparse_weights = self.dropout(sparse_weights)
         
         # Apply variable selection
-        # The dimension of sparse_weights is (batch_size, num_inputs),
-        # but transformed_inputs is (batch_size, seq_len, num_inputs, hidden_size).
-        # We need to align dimensions for broadcasting.
-        # sparse_weights: [batch_size, num_inputs] -> [batch_size, 1, num_inputs, 1]
-        # transformed_inputs: [batch_size, seq_len, num_inputs, hidden_size]
-        # The multiplication should be on the num_inputs dimension.
+        weights = sparse_weights.unsqueeze(1).unsqueeze(-1)
         
-        # Reshape sparse_weights for proper broadcasting
-        weights = sparse_weights.unsqueeze(1).unsqueeze(-1)  # Shape: [batch_size, 1, num_inputs, 1]
-        
-        # Multiply transformed_inputs by weights and sum along the num_inputs dimension
-        processed_inputs = torch.sum(transformed_inputs * weights, dim=2) # Shape: [batch_size, seq_len, hidden_size]
+        processed_inputs = torch.sum(transformed_inputs * weights, dim=2)
         
         return processed_inputs
 
