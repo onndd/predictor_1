@@ -124,13 +124,25 @@ class MasterTrainer:
                 elif space['type'] == 'float':
                     low_val = float(space['low'])
                     high_val = float(space['high'])
-                    print(f"  [HPO DEBUG] Param: {param}, Low: {low_val}, High: {high_val}, Type Low: {type(low_val)}, Type High: {type(high_val)}")
-                    trial_profile[param] = trial.suggest_float(
-                        param,
-                        low_val,
-                        high_val,
-                        log=space.get('log', False)
-                    )
+                    
+                    # Defensively handle potential Optuna errors and prune the trial
+                    try:
+                        # Explicitly check to prevent Optuna's ValueError and prune trial if invalid
+                        if low_val >= high_val:
+                            print(f"  [HPO WARNING] Pruning trial for param '{param}' because low >= high ({low_val} >= {high_val}).")
+                            raise optuna.exceptions.TrialPruned(f"Invalid range for {param}")
+
+                        trial_profile[param] = trial.suggest_float(
+                            param,
+                            low_val,
+                            high_val,
+                            log=space.get('log', False)
+                        )
+                    except (ValueError, TypeError) as e:
+                        # Catch other potential errors from Optuna and prune the trial gracefully
+                        print(f"  [HPO WARNING] Pruning trial due to an error suggesting param '{param}': {e}")
+                        print(f"  > Values that caused the error: low={low_val}, high={high_val}, log={space.get('log', False)}")
+                        raise optuna.exceptions.TrialPruned()
                 elif space['type'] == 'int':
                     trial_profile[param] = trial.suggest_int(param, space['low'], space['high'])
             
