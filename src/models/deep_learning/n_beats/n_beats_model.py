@@ -652,7 +652,7 @@ class NBeatsPredictor:
     """
     def __init__(self, sequence_length: int = 300, hidden_size: int = 512,
                  num_stacks: int = 4, num_blocks: int = 4, learning_rate: float = 0.001,
-                 threshold: float = 1.5, crash_weight: float = 3.0, device: str = 'cpu'):
+                 threshold: float = 1.5, crash_weight: float = 5.0, device: str = 'cpu'):
         self.sequence_length = sequence_length
         self.hidden_size = hidden_size
         self.num_stacks = num_stacks

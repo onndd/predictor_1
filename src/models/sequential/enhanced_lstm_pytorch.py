@@ -118,13 +118,15 @@ class EnhancedLSTMPredictor:
     Enhanced LSTM Predictor with PyTorch backend
     """
     def __init__(self, seq_length: int = 200, n_features: int = 1, threshold: float = 1.5,
-                 hidden_size: int = 128, num_layers: int = 2, learning_rate: float = 0.001, device: str = 'cpu'):
+                 hidden_size: int = 128, num_layers: int = 2, learning_rate: float = 0.001,
+                 crash_weight: float = 5.0, device: str = 'cpu'):
         self.seq_length = seq_length
         self.n_features = n_features
         self.threshold = threshold
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.learning_rate = learning_rate
+        self.crash_weight = crash_weight
         self.device = device
         
         # Initialize model
@@ -164,16 +166,28 @@ class EnhancedLSTMPredictor:
             prob_targets = (targets >= self.threshold).float()
             prob_loss = F.binary_cross_entropy(predictions['probability'].squeeze(), prob_targets)
             
-            # Crash risk loss
+            # Crash risk loss (weighted)
             crash_targets = (targets < self.threshold).float()
-            crash_loss = F.binary_cross_entropy(predictions['crash_risk'].squeeze(), crash_targets)
+            crash_weights = torch.where(crash_targets == 1, self.crash_weight, 1.0)
+            weighted_crash_loss = F.binary_cross_entropy(
+                predictions['crash_risk'].squeeze(),
+                crash_targets,
+                weight=crash_weights,
+                reduction='mean'
+            )
             
             # Confidence loss (higher confidence for accurate predictions)
-            accuracy = 1.0 - torch.abs(predictions['value'].squeeze() - targets) / targets.clamp(min=0.1)
+            with torch.no_grad():
+                accuracy = 1.0 - torch.abs(predictions['value'].squeeze() - targets) / targets.clamp(min=0.1)
             conf_loss = F.mse_loss(predictions['confidence'].squeeze(), accuracy)
             
             # Combined loss
-            total_loss = 0.5 * value_loss + 0.3 * prob_loss + 0.1 * crash_loss + 0.1 * conf_loss
+            total_loss = (
+                0.5 * value_loss +
+                0.3 * prob_loss +
+                0.1 * weighted_crash_loss +
+                0.1 * conf_loss
+            )
             return total_loss
         
         return loss_fn

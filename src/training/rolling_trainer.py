@@ -15,6 +15,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from src.training.model_registry import ModelRegistry
 from src.config.settings import PATHS
+from src.evaluation.metrics import calculate_threshold_metrics # YENİ İMPORT
 
 # A factory to get model classes dynamically
 def get_model_predictor(model_type: str) -> Any:
@@ -158,11 +159,18 @@ class RollingTrainer:
             mae = np.mean(np.abs(np.array(predictions) - np.array(actuals)))
             rmse = np.sqrt(np.mean((np.array(predictions) - np.array(actuals))**2))
             
-            pred_above = [p >= self.config.get('threshold', 1.5) for p in predictions]
-            actual_above = [a >= self.config.get('threshold', 1.5) for a in actuals]
-            accuracy = np.mean([p == a for p, a in zip(pred_above, actual_above)])
+            # Sınıflandırma metriklerini hesapla
+            classification_metrics = calculate_threshold_metrics(
+                y_true=actuals,
+                y_pred=predictions,
+                threshold=self.config.get('threshold', 1.5)
+            )
             
-            return {'mae': mae, 'rmse': rmse, 'accuracy': accuracy}
+            # Regresyon metriklerini ekle
+            classification_metrics['mae'] = mae
+            classification_metrics['rmse'] = rmse
+            
+            return classification_metrics
         except Exception as e:
             print(f"❌ Model testing error: {e}")
             traceback.print_exc()
@@ -251,7 +259,7 @@ class RollingTrainer:
 
                 self.model_registry.register_model(model_name, self.model_type, self.config, performance, model_path, metadata_path)
                 cycle_results.append({'cycle': cycle + 1, 'performance': performance, 'model_path': model_path})
-                print(f"  ✅ Cycle {cycle + 1} completed: MAE={performance['mae']:.4f}, Acc={performance['accuracy']:.4f}")
+                print(f"  ✅ Cycle {cycle + 1} completed: MAE={performance['mae']:.4f}, F1={performance['f1']:.4f}, Recall={performance['recall']:.4f}")
                 
                 # Save checkpoint after a successful cycle
                 self._save_checkpoint(model, model.optimizer, cycle)

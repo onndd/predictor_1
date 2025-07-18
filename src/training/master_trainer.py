@@ -246,9 +246,18 @@ class MasterTrainer:
             print("❌ Pipeline stopped due to data loading failure.")
             return
 
-        with mlflow.start_run(run_name="Master_Training_Run"):
+        # --- MLflow Yerel URI Düzeltmesi ---
+        # Hatanın çözümü için MLflow'a artifact'leri ve deneyleri nereye kaydedeceğini
+        # açıkça belirtiyoruz. Bu, 'mlflow-artifacts' URI hatasını önler.
+        mlruns_dir = os.path.join(os.getcwd(), "mlruns")
+        os.makedirs(mlruns_dir, exist_ok=True)
+        mlflow.set_tracking_uri(f"file://{os.path.abspath(mlruns_dir)}")
+        # ------------------------------------
+
+        with mlflow.start_run(run_name="Master_Training_Run") as run:
+            print(f"🚀 MLflow Run Started. Run ID: {run.info.run_id}")
+            print(f"   Artifacts will be logged to: {mlflow.get_artifact_uri()}")
             mlflow.set_tag("execution_time", datetime.now().isoformat())
-            print(f"🚀 MLflow Run Started. Check UI at http://127.0.0.1:5000")
 
             for model_name in self.models_to_train:
                 print(f"\n\n--- Processing Model: {model_name} ---")

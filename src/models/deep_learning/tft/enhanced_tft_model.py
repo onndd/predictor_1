@@ -318,3 +318,60 @@ class EnhancedTFTPredictor:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.training_history = checkpoint['training_history']
         self.is_trained = checkpoint['is_trained']
+
+class JetXTFTLoss(nn.Module):
+    """
+    JetX-specific loss function for TFT
+    """
+    def __init__(self, threshold: float = 1.5, crash_weight: float = 5.0, alpha: float = 0.6):
+        super(JetXTFTLoss, self).__init__()
+        self.threshold = threshold
+        self.crash_weight = crash_weight
+        self.alpha = alpha
+        self.mse = nn.MSELoss()
+        self.bce = nn.BCELoss()
+    
+    def forward(self, predictions: Dict[str, torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate JetX-specific loss
+        
+        Args:
+            predictions: Dictionary with model predictions
+            targets: Target values
+            
+        Returns:
+            Combined loss
+        """
+        # Primary value loss
+        value_loss = self.mse(predictions['value'].squeeze(), targets)
+        
+        # Threshold probability loss
+        threshold_targets = (targets >= self.threshold).float()
+        prob_loss = self.bce(predictions['probability'].squeeze(), threshold_targets)
+        
+        # Crash risk loss (weighted)
+        crash_targets = (targets < self.threshold).float()
+        
+        # Apply crash_weight to the BCE loss for crash predictions
+        crash_weights = torch.where(crash_targets == 1, self.crash_weight, 1.0)
+        weighted_crash_loss = F.binary_cross_entropy(
+            predictions['crash_risk'].squeeze(), 
+            crash_targets, 
+            weight=crash_weights,
+            reduction='mean'
+        )
+        
+        # Confidence loss (should be high when prediction is accurate)
+        with torch.no_grad():
+            prediction_accuracy = 1.0 - torch.abs(predictions['value'].squeeze() - targets) / targets.clamp(min=0.1)
+        conf_loss = self.mse(predictions['confidence'].squeeze(), prediction_accuracy)
+        
+        # Combined loss
+        total_loss = (
+            self.alpha * value_loss +
+            (1 - self.alpha) * 0.5 * prob_loss +
+            (1 - self.alpha) * 0.3 * weighted_crash_loss +
+            (1 - self.alpha) * 0.2 * conf_loss
+        )
+        
+        return total_loss
