@@ -184,7 +184,7 @@ class RollingTrainer:
             classification_metrics['mae'] = mae
             classification_metrics['rmse'] = rmse
             
-            return classification_metrics
+            return _convert_to_native_types(classification_metrics)
         except Exception as e:
             print(f"❌ Model testing error: {e}")
             traceback.print_exc()
