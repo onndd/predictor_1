@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Any
 from .statistical_features import extract_statistical_features
 from .categorical_features import CategoricalFeatureEncoder
 from .pattern_features import NgramFeatureEncoder
+from .similarity_features import SimilarityFeatureEncoder
 
 class UnifiedFeatureExtractor:
     """
@@ -30,6 +31,7 @@ class UnifiedFeatureExtractor:
         # Initialize individual feature encoders
         self.categorical_encoder = CategoricalFeatureEncoder()
         self.ngram_encoder = NgramFeatureEncoder(top_n_ngrams=top_n_ngrams)
+        self.similarity_encoder = SimilarityFeatureEncoder()
         
         self.is_fitted = False
         self.feature_names: List[str] = []
@@ -52,6 +54,7 @@ class UnifiedFeatureExtractor:
         # Fit categorical and pattern encoders
         self.categorical_encoder.fit(values)
         self.ngram_encoder.fit(values)
+        self.similarity_encoder.fit(values, self.sequence_length)
         
         self.is_fitted = True
         
@@ -83,14 +86,18 @@ class UnifiedFeatureExtractor:
         # 3. Pattern (N-gram) Features
         ngram_f = self.ngram_encoder.transform(values)
         
+        # 4. Similarity Features
+        similarity_f = self.similarity_encoder.transform(values, self.sequence_length)
+
         # Ensure all feature sets have the same number of samples
-        min_len = min(len(statistical_f), len(categorical_f), len(ngram_f))
+        min_len = min(len(statistical_f), len(categorical_f), len(ngram_f), len(similarity_f))
         
         # Combine all features
         combined_features = np.hstack([
             statistical_f[:min_len],
             categorical_f[:min_len],
-            ngram_f[:min_len]
+            ngram_f[:min_len],
+            similarity_f[:min_len]
         ])
         
         # Clean final feature matrix
@@ -108,11 +115,13 @@ class UnifiedFeatureExtractor:
         stat_features = extract_statistical_features(sample_values)
         cat_features = self.categorical_encoder.transform(sample_values)
         ngram_features = self.ngram_encoder.transform(sample_values)
+        sim_features = self.similarity_encoder.transform(sample_values, self.sequence_length)
         
         names = []
         names.extend([f"stat_{i}" for i in range(stat_features.shape[1])])
         names.extend([f"cat_{i}" for i in range(cat_features.shape[1])])
         names.extend([f"ngram_{i}" for i in range(ngram_features.shape[1])])
+        names.extend([f"sim_{i}" for i in range(sim_features.shape[1])])
         
         self.feature_names = names
 

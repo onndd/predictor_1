@@ -109,6 +109,13 @@ class AdvancedModelManager:
             self.initialize_heavy_models_lazy()
         if self.use_optimized_ensemble:
             self.initialize_optimized_ensemble(data)
+
+        if self.knowledge_transfer_enabled and auto_train_heavy:
+            print("🧠 Initiating knowledge transfer process...")
+            sample_seq = data[-200:] if len(data) >= 200 else data
+            self.extract_knowledge_from_heavy_models(sample_seq)
+            self.transfer_knowledge_to_light_models()
+
         self.is_initialized = True
         print("Model initialization completed.")
     
@@ -315,6 +322,60 @@ class AdvancedModelManager:
         errors = [e for e in [self.dependency_error, self.light_model_dependency_error] if e]
         return "\n".join(errors) if errors else None
 
+    def extract_knowledge_from_heavy_models(self, sample_sequence: List[float]):
+        """
+        Extracts knowledge from trained heavy models.
+        """
+        if not self.knowledge_transfer_enabled:
+            return
+        
+        print("🧠 Extracting knowledge from heavy models...")
+        self.heavy_knowledge = HeavyModelKnowledge()
+        
+        # Example: Extract from TFT model if available
+        if 'tft' in self.models and hasattr(self.models['tft'], 'predict_with_attention'):
+            try:
+                _, _, _, attention_weights = self.models['tft'].predict_with_attention(sample_sequence)
+                if attention_weights:
+                    # Aggregate attention weights to get feature importance
+                    # This is a simplified example
+                    agg_attention = torch.cat(attention_weights, dim=0).mean(dim=(0, 1))
+                    feature_importance = agg_attention.sum(dim=0).cpu().numpy()
+                    
+                    # Get feature names from a light model
+                    if 'light_ensemble' in self.models and self.models['light_ensemble'].models:
+                        light_model = next(iter(self.models['light_ensemble'].models.values()))
+                        if hasattr(light_model, 'feature_names') and light_model.feature_names:
+                            for i, name in enumerate(light_model.feature_names):
+                                if i < len(feature_importance):
+                                    self.heavy_knowledge.add_feature_importance(name, float(feature_importance[i]))
+                    
+                    print("  -> Knowledge extracted from TFT attention weights.")
+            except Exception as e:
+                print(f"  -> Could not extract knowledge from TFT: {e}")
+        
+        # Save the extracted knowledge
+        knowledge_path = os.path.join(self.models_dir, "metadata", "heavy_knowledge.pkl")
+        self.heavy_knowledge.save_knowledge(knowledge_path)
+        print(f"  -> Heavy model knowledge saved to {knowledge_path}")
+
+    def transfer_knowledge_to_light_models(self):
+        """
+        Transfers extracted knowledge to light models.
+        """
+        if not self.heavy_knowledge or not self.heavy_knowledge.is_valid():
+            print("⚠️ No valid heavy model knowledge to transfer.")
+            return
+            
+        print("🧠 Transferring knowledge to light models...")
+        
+        if 'light_ensemble' in self.models:
+            self.models['light_ensemble'].update_with_heavy_knowledge(self.heavy_knowledge)
+            print("  -> Knowledge transferred to LightModelEnsemble.")
+        
+        if 'hybrid_predictor' in self.models and hasattr(self.models['hybrid_predictor'], 'update_with_heavy_knowledge'):
+             self.models['hybrid_predictor'].update_with_heavy_knowledge(self.heavy_knowledge)
+             print("  -> Knowledge transferred to HybridPredictor.")
 
     def predict_with_ensemble(self, sequence: List[float], use_optimized: bool = True) -> Dict[str, Any]:
         """

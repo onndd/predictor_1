@@ -11,6 +11,7 @@ import traceback
 import warnings
 from typing import Optional, Dict, Any, List
 import yaml
+from typing import Tuple
 
 # Uyarıları bastır
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -219,7 +220,41 @@ class ColabHealthCheck:
             errors.append(f"Veritabanı uyumluluk kontrol hatası: {e}")
             return errors
 
-    def run_pre_training_checks(self):
+    def check_ngrok_tunnel(self, authtoken: str) -> Tuple[bool, str]:
+        """ngrok tünelini proaktif olarak test eder."""
+        print("\n🔗 ngrok Tünel Bağlantısı Test Ediliyor...")
+        try:
+            from pyngrok import ngrok, conf
+            
+            # Kill any existing ngrok processes to ensure a clean start
+            ngrok.kill()
+            
+            # Set authtoken
+            ngrok.set_auth_token(authtoken)
+            
+            # Attempt to open a tunnel
+            print("  - Geçici tünel oluşturuluyor...")
+            http_tunnel = ngrok.connect(5000, "http")
+            public_url = http_tunnel.public_url
+            print(f"  - Tünel başarıyla oluşturuldu: {public_url}")
+            
+            # Close the tunnel immediately
+            ngrok.disconnect(public_url)
+            print("  - Geçici tünel kapatıldı.")
+            
+            return True, "ngrok bağlantısı başarılı."
+            
+        except Exception as e:
+            error_message = f"ngrok hatası: {e}"
+            print(f"  - ❌ {error_message}")
+            # Ensure all ngrok processes are killed on failure
+            try:
+                ngrok.kill()
+            except Exception:
+                pass
+            return False, error_message
+
+    def run_pre_training_checks(self, ngrok_authtoken: Optional[str] = None):
         """Eğitim öncesi tüm kontrolleri yap"""
         print("🔍 Eğitim öncesi sistem kontrolleri başlatılıyor...")
         print("=" * 60)
@@ -232,6 +267,11 @@ class ColabHealthCheck:
             'Veritabanı Durumu': self.check_database_status(),
             'Yapılandırma Yükleme': self._load_config()
         }
+
+        # ngrok kontrolü (eğer token verilmişse)
+        if ngrok_authtoken:
+            ngrok_ok, _ = self.check_ngrok_tunnel(ngrok_authtoken)
+            checks['ngrok Bağlantısı'] = ngrok_ok
 
         # Gelişmiş kontroller (eğer temel kurulum başarılıysa)
         if all(checks.values()):

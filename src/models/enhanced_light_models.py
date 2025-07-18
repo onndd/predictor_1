@@ -245,6 +245,17 @@ class EnhancedRandomForest:
         self.feature_names = feature_names
         X = np.array(X_list)
         y = np.array(labels)
+
+        # Knowledge-based feature weighting
+        if self.knowledge_boost_enabled and self.heavy_knowledge and self.heavy_knowledge.feature_importance:
+            print("  -> Applying knowledge-based feature weighting...")
+            feature_weights = np.ones(len(self.feature_names))
+            for i, name in enumerate(self.feature_names):
+                # Get importance from knowledge, default to 1.0
+                importance = self.heavy_knowledge.get_feature_importance(name)
+                feature_weights[i] = 1.0 + (importance * 0.5) # Boost important features
+            
+            X = X * feature_weights
         
         # Feature scaling
         X_scaled = self.scaler.fit_transform(X)
