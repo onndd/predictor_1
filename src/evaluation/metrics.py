@@ -21,12 +21,18 @@ def calculate_threshold_metrics(y_true, y_pred, threshold=1.5):
     y_true_binary = np.array(y_true) >= threshold
     y_pred_binary = np.array(y_pred) >= threshold
     
-    # Accuracy
-    accuracy = accuracy_score(y_true_binary, y_pred_binary)
+    # Accuracy (Eşik Doğruluğu)
+    threshold_accuracy = accuracy_score(y_true_binary, y_pred_binary)
     
     # Confusion matrix
-    tn, fp, fn, tp = confusion_matrix(y_true_binary, y_pred_binary).ravel()
-    
+    # Eğer sadece bir sınıf varsa (tüm değerler eşiğin altında veya üstündeyse), ravel() hata verir.
+    cm = confusion_matrix(y_true_binary, y_pred_binary)
+    if cm.size == 1: # Sadece tek bir değer varsa (örn: sadece TN)
+        tn = cm[0][0]
+        fp, fn, tp = 0, 0, 0
+    else:
+        tn, fp, fn, tp = cm.ravel()
+
     # Precision, Recall, F1
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0
@@ -36,7 +42,7 @@ def calculate_threshold_metrics(y_true, y_pred, threshold=1.5):
     balanced_accuracy = (recall + (tn / (tn + fp) if (tn + fp) > 0 else 0)) / 2
     
     return {
-        'accuracy': accuracy,
+        'threshold_accuracy': threshold_accuracy,
         'balanced_accuracy': balanced_accuracy,
         'precision': precision,
         'recall': recall,

@@ -343,11 +343,11 @@ class JetXTFTLoss(nn.Module):
             Combined loss
         """
         # Primary value loss
-        value_loss = self.mse(predictions['value'].squeeze(), targets)
+        value_loss = self.mse(predictions['value'].squeeze(-1), targets)
         
         # Threshold probability loss
         threshold_targets = (targets >= self.threshold).float()
-        prob_loss = self.bce(predictions['probability'].squeeze(), threshold_targets)
+        prob_loss = self.bce(predictions['probability'].squeeze(-1), threshold_targets)
         
         # Crash risk loss (weighted)
         crash_targets = (targets < self.threshold).float()
@@ -355,16 +355,16 @@ class JetXTFTLoss(nn.Module):
         # Apply crash_weight to the BCE loss for crash predictions
         crash_weights = torch.where(crash_targets == 1, self.crash_weight, 1.0)
         weighted_crash_loss = F.binary_cross_entropy(
-            predictions['crash_risk'].squeeze(), 
-            crash_targets, 
+            predictions['crash_risk'].squeeze(-1),
+            crash_targets,
             weight=crash_weights,
             reduction='mean'
         )
         
         # Confidence loss (should be high when prediction is accurate)
         with torch.no_grad():
-            prediction_accuracy = 1.0 - torch.abs(predictions['value'].squeeze() - targets) / targets.clamp(min=0.1)
-        conf_loss = self.mse(predictions['confidence'].squeeze(), prediction_accuracy)
+            prediction_accuracy = 1.0 - torch.abs(predictions['value'].squeeze(-1) - targets) / targets.clamp(min=0.1)
+        conf_loss = self.mse(predictions['confidence'].squeeze(-1), prediction_accuracy)
         
         # Combined loss
         total_loss = (

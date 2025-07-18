@@ -247,11 +247,14 @@ class MasterTrainer:
             return
 
         # --- MLflow Yerel URI Düzeltmesi ---
-        # Hatanın çözümü için MLflow'a artifact'leri ve deneyleri nereye kaydedeceğini
-        # açıkça belirtiyoruz. Bu, 'mlflow-artifacts' URI hatasını önler.
+        # MLflow'un hem deneyleri hem de artifact'leri yerel dosya sistemine kaydetmesini sağlıyoruz.
+        # Bu, 'mlflow-artifacts' URI'si ile ilgili hataları önler.
         mlruns_dir = os.path.join(os.getcwd(), "mlruns")
         os.makedirs(mlruns_dir, exist_ok=True)
+        
+        # Hem tracking URI'sini hem de deneyi ayarlayarak MLflow'un kafasının karışmasını önlüyoruz.
         mlflow.set_tracking_uri(f"file://{os.path.abspath(mlruns_dir)}")
+        mlflow.set_experiment("JetX_Training_Experiment")
         # ------------------------------------
 
         with mlflow.start_run(run_name="Master_Training_Run") as run:
@@ -333,9 +336,43 @@ class MasterTrainer:
         registry_path = self.model_registry.export_to_json()
         print(f"📦 Full model registry exported to: {registry_path}")
 
+        # --- En İyi Modelleri İndirme Talimatları ---
+        print("\n\n📥 --- Download Best Models ---")
+        print("To download the best performing model for each type, use the following paths:")
+        for model_name, results in self.results.items():
+            if results:
+                best_cycle = min(results, key=lambda x: x['performance']['mae'])
+                model_path = best_cycle['model_path']
+                print(f"\n  - Model: {model_name}")
+                print(f"    Path: {os.path.abspath(model_path)}")
+        print("\nExample Colab download command: from google.colab import files; files.download('path/to/your/model.pth')")
+
+
 if __name__ == '__main__':
-    # This allows running the trainer directly for testing
-    selected_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # Train only one model for a quick test of the full pipeline
-    master_trainer = MasterTrainer(models_to_train=['N-Beats'], device=selected_device)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Master Trainer for JetX Prediction Models")
+    parser.add_argument(
+        '--models',
+        nargs='+',
+        default=None,
+        help="List of model names to train (e.g., N-Beats TFT). If not provided, all models will be trained."
+    )
+    parser.add_argument(
+        '--device',
+        type=str,
+        default=None,
+        help="Device to use for training ('cuda' or 'cpu'). If not provided, it will auto-detect."
+    )
+    
+    args = parser.parse_args()
+
+    # Cihazı belirle
+    if args.device:
+        selected_device = args.device
+    else:
+        selected_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # MasterTrainer'ı başlat
+    master_trainer = MasterTrainer(models_to_train=args.models, device=selected_device)
     master_trainer.run()

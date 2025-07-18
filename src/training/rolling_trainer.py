@@ -274,7 +274,7 @@ class RollingTrainer:
 
                 self.model_registry.register_model(model_name, self.model_type, self.config, performance, model_path, metadata_path)
                 cycle_results.append({'cycle': cycle + 1, 'performance': performance, 'model_path': model_path})
-                print(f"  ✅ Cycle {cycle + 1} completed: MAE={performance['mae']:.4f}, F1={performance['f1']:.4f}, Recall={performance['recall']:.4f}")
+                print(f"  ✅ Cycle {cycle + 1} completed: MAE={performance['mae']:.4f}, F1={performance['f1']:.4f}, Recall={performance['recall']:.4f}, Threshold Acc={performance.get('threshold_accuracy', 0):.4f}")
                 
                 # Save checkpoint after a successful cycle
                 self._save_checkpoint(model, model.optimizer, cycle)
