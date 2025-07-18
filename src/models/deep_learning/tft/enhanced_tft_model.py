@@ -90,170 +90,30 @@ class JetXTFTModel(nn.Module):
             
         return predictions
 
-class EnhancedTFTPredictor:
+from src.models.base_predictor import BasePredictor
+
+class EnhancedTFTPredictor(BasePredictor):
     """
-    Enhanced TFT predictor with JetX-specific features
+    Enhanced TFT predictor with JetX-specific features, inheriting from BasePredictor.
     """
-    def __init__(self, sequence_length: int = 200, hidden_size: int = 256,
-                 num_heads: int = 8, num_layers: int = 2, learning_rate: float = 0.001,
-                 threshold: float = 1.5, device: str = 'cpu'):
-        self.sequence_length = sequence_length
-        self.hidden_size = hidden_size
-        self.num_heads = num_heads
-        self.num_layers = num_layers
-        self.learning_rate = learning_rate
-        self.threshold = threshold
-        self.device = device
-        
-        # Initialize enhanced JetX TFT model
-        self.model = JetXTFTModel(
+    def _build_model(self, **kwargs) -> nn.Module:
+        """Build the JetX-enhanced TFT model."""
+        return JetXTFTModel(
             input_size=1,
-            hidden_size=hidden_size,
-            num_heads=num_heads,
-            num_layers=num_layers,
+            hidden_size=kwargs.get('hidden_size', 256),
+            num_heads=kwargs.get('num_heads', 8),
+            num_layers=kwargs.get('num_layers', 2),
             forecast_horizon=1,
-            threshold=threshold
-        ).to(self.device)
-        
-        # Use JetX-specific loss function
-        self.criterion = JetXTFTLoss(threshold=threshold)
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(), 
-            lr=learning_rate,
-            weight_decay=0.01,  # L2 regularization
-            eps=1e-8
+            threshold=kwargs.get('threshold', 1.5)
         )
-        
-        # Learning rate scheduler
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, 
-            T_max=100,
-            eta_min=1e-6
+
+    def _create_loss_function(self, **kwargs) -> nn.Module:
+        """Create the JetX-specific loss function for TFT."""
+        return JetXTFTLoss(
+            threshold=kwargs.get('threshold', 1.5),
+            crash_weight=kwargs.get('crash_weight', 5.0)
         )
-        
-        # Training state
-        self.is_trained = False
-        self.training_history = []
-        
-    def prepare_sequences(self, data: List[float]) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Prepare sequences for training, handling both lists of floats and lists of tuples.
-        """
-        # Check if the data is a list of tuples and extract the second element if so.
-        processed_data = []
-        if data and len(data) > 0:
-            first_item = data[0]
-            if isinstance(first_item, (tuple, list)) and len(first_item) > 1:
-                processed_data = [float(item[1]) for item in data if isinstance(item, (tuple, list)) and len(item) > 1]
-            else:
-                processed_data = [float(item) for item in data]
-        else:
-            processed_data = []
-        
-        sequences = []
-        targets = []
-        
-        for i in range(len(processed_data) - self.sequence_length):
-            seq = processed_data[i:i + self.sequence_length]
-            target = processed_data[i + self.sequence_length]
-            
-            sequences.append(seq)
-            targets.append(target)
-        
-        sequences_tensor = torch.tensor(sequences, dtype=torch.float32).unsqueeze(-1)
-        targets_tensor = torch.tensor(targets, dtype=torch.float32)
-        
-        print(f"🔧 Enhanced TFT: Prepared sequences shape: {sequences_tensor.shape}")
-        print(f"🔧 Enhanced TFT: Prepared targets shape: {targets_tensor.shape}")
-        
-        return sequences_tensor, targets_tensor
-    
-    def train(self, data: List[float], epochs: int = 100, batch_size: int = 32,
-              validation_split: float = 0.2, verbose: bool = True, tqdm_desc: str = "Training") -> dict:
-        """
-        Train the enhanced TFT model
-        """
-        # Prepare data
-        X, y = self.prepare_sequences(data)
-        
-        # Split into train and validation
-        split_idx = int(len(X) * (1 - validation_split))
-        X_train, X_val = X[:split_idx], X[split_idx:]
-        y_train, y_val = y[:split_idx], y[split_idx:]
-        
-        # Update scheduler T_max
-        self.scheduler.T_max = epochs
-        
-        # Early stopping parameters
-        best_val_loss = float('inf')
-        patience_counter = 0
-        patience = 15
-        
-        # Training loop
-        train_losses = []
-        val_losses = []
-        
-        epoch_iterator = tqdm(range(epochs), desc=tqdm_desc, leave=False)
-        for epoch in epoch_iterator:
-            # Training
-            self.model.train()
-            total_train_loss = 0
-            num_batches = 0
-            
-            for i in range(0, len(X_train), batch_size):
-                batch_X = X_train[i:i + batch_size].to(self.device)
-                batch_y = y_train[i:i + batch_size].to(self.device)
-                
-                self.optimizer.zero_grad()
-                predictions = self.model(batch_X)
-                loss = self.criterion(predictions, batch_y)
-                loss.backward()
-                
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                
-                self.optimizer.step()
-                
-                total_train_loss += loss.item()
-                num_batches += 1
-            
-            avg_train_loss = total_train_loss / num_batches
-            
-            # Validation
-            self.model.eval()
-            with torch.no_grad():
-                val_predictions = self.model(X_val.to(self.device))
-                val_loss = self.criterion(val_predictions, y_val.to(self.device)).item()
-            
-            # Update learning rate
-            self.scheduler.step()
-            
-            train_losses.append(avg_train_loss)
-            val_losses.append(val_loss)
-            
-            # Update tqdm description
-            epoch_iterator.set_description(f"{tqdm_desc} | Epoch {epoch+1}/{epochs} | Val Loss: {val_loss:.4f}")
-            
-            # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-            else:
-                patience_counter += 1
-                
-            if patience_counter >= patience:
-                if verbose:
-                    print(f"\nEarly stopping at epoch {epoch + 1}")
-                break
-        
-        self.is_trained = True
-        self.training_history = {
-            'train_losses': train_losses,
-            'val_losses': val_losses
-        }
-        
-        return self.training_history
-    
+
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         """
         Make a prediction with confidence metrics - required for rolling training system.

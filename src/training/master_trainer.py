@@ -26,7 +26,7 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 # Ensure src path is available for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.config.settings import get_aggressive_training_profiles, PATHS, CONFIG
+from src.config.settings import get_model_default_params, get_hpo_space, get_all_models, PATHS, CONFIG
 from src.data_processing.loader import load_data_from_sqlite
 from src.training.rolling_trainer import RollingTrainer
 from src.training.model_registry import ModelRegistry
@@ -44,14 +44,16 @@ class MasterTrainer:
             models_to_train: A list of model names to train. If None, trains all models from config.
             device: The device to run training on ('cpu' or 'cuda').
         """
-        self.training_profiles = get_aggressive_training_profiles()
         self.device = device
         print(f"🔌 MasterTrainer initialized to run on device: {self.device}")
-        
+
+        all_configurable_models = get_all_models()
         if models_to_train:
-            self.models_to_train = [m for m in models_to_train if m in self.training_profiles]
+            self.models_to_train = [m for m in models_to_train if m in all_configurable_models]
         else:
-            self.models_to_train = list(self.training_profiles.keys())
+            self.models_to_train = all_configurable_models
+            
+        self.training_profiles = {model: get_model_default_params(model) for model in self.models_to_train}
             
         self.model_registry = ModelRegistry()
         self.db_path = PATHS['database']
@@ -109,7 +111,7 @@ class MasterTrainer:
     def _create_objective_function(self, model_name: str, profile: Dict[str, Any], chunks: List[Any]) -> Any:
         """Creates the objective function for Optuna study."""
         
-        hpo_space = CONFIG.get('hpo_search_space', {}).get(model_name)
+        hpo_space = get_hpo_space(model_name)
         if not hpo_space:
             return None
 
@@ -193,7 +195,7 @@ class MasterTrainer:
             return profile
 
         study = optuna.create_study(direction='minimize')
-        n_trials = CONFIG.get('hpo_search_space', {}).get('n_trials', 20)
+        n_trials = CONFIG.get('training', {}).get('hpo_trials', 15)
         
         # MLflow entegrasyonu ile HPO
         mlflow.set_tag("hpo_model", model_name)

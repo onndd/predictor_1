@@ -113,179 +113,55 @@ class JetXLSTMModel(nn.Module):
             'crash_risk': crash_risk
         }
 
-class EnhancedLSTMPredictor:
+from src.models.base_predictor import BasePredictor
+
+class EnhancedLSTMPredictor(BasePredictor):
     """
-    Enhanced LSTM Predictor with PyTorch backend
+    Enhanced LSTM Predictor with PyTorch backend, inheriting from BasePredictor.
     """
-    def __init__(self, seq_length: int = 200, n_features: int = 1, threshold: float = 1.5,
-                 hidden_size: int = 128, num_layers: int = 2, learning_rate: float = 0.001,
-                 crash_weight: float = 5.0, device: str = 'cpu'):
-        self.seq_length = seq_length
-        self.n_features = n_features
-        self.threshold = threshold
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.learning_rate = learning_rate
-        self.crash_weight = crash_weight
-        self.device = device
-        
-        # Initialize model
-        self.model = JetXLSTMModel(
-            input_size=n_features,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            threshold=threshold
-        ).to(self.device)
-        
-        # Loss function and optimizer
-        self.criterion = self._create_loss_function()
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(),
-            lr=learning_rate,
-            weight_decay=0.01
+    def __init__(self, sequence_length: int = 200, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
+        # sequence_length must be set before calling super().__init__
+        self.sequence_length = sequence_length
+        super().__init__(sequence_length=sequence_length, learning_rate=learning_rate, device=device, **kwargs)
+
+    def _build_model(self, **kwargs) -> nn.Module:
+        """Build the JetX-enhanced LSTM model."""
+        return JetXLSTMModel(
+            input_size=kwargs.get('n_features', 1),
+            hidden_size=kwargs.get('hidden_size', 128),
+            num_layers=kwargs.get('num_layers', 2),
+            threshold=kwargs.get('threshold', 1.5)
         )
-        
-        # Learning rate scheduler
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer,
-            T_max=100,
-            eta_min=1e-6
-        )
-        
-        # Training state
-        self.is_trained = False
-        self.training_history = []
-        
-    def _create_loss_function(self):
-        """Create multi-output loss function"""
+
+    def _create_loss_function(self, **kwargs) -> nn.Module:
+        """Create the multi-output loss function for LSTM."""
+        threshold = kwargs.get('threshold', 1.5)
+        crash_weight = kwargs.get('crash_weight', 5.0)
+
         def loss_fn(predictions, targets):
-            # Value loss (MSE)
             value_loss = F.mse_loss(predictions['value'].squeeze(), targets)
-            
-            # Probability loss (BCE)
-            prob_targets = (targets >= self.threshold).float()
+            prob_targets = (targets >= threshold).float()
             prob_loss = F.binary_cross_entropy(predictions['probability'].squeeze(), prob_targets)
-            
-            # Crash risk loss (weighted)
-            crash_targets = (targets < self.threshold).float()
-            crash_weights = torch.where(crash_targets == 1, self.crash_weight, 1.0)
+            crash_targets = (targets < threshold).float()
+            weights = torch.where(crash_targets == 1, crash_weight, 1.0)
             weighted_crash_loss = F.binary_cross_entropy(
-                predictions['crash_risk'].squeeze(),
-                crash_targets,
-                weight=crash_weights,
-                reduction='mean'
+                predictions['crash_risk'].squeeze(), crash_targets, weight=weights, reduction='mean'
             )
-            
-            # Confidence loss (higher confidence for accurate predictions)
             with torch.no_grad():
                 accuracy = 1.0 - torch.abs(predictions['value'].squeeze() - targets) / targets.clamp(min=0.1)
             conf_loss = F.mse_loss(predictions['confidence'].squeeze(), accuracy)
             
-            # Combined loss
-            total_loss = (
-                0.5 * value_loss +
-                0.3 * prob_loss +
-                0.1 * weighted_crash_loss +
-                0.1 * conf_loss
-            )
-            return total_loss
+            return 0.5 * value_loss + 0.3 * prob_loss + 0.1 * weighted_crash_loss + 0.1 * conf_loss
         
         return loss_fn
-    
-    def prepare_sequences(self, data):
-        """Prepare sequences for training"""
-        # Handle tuple data
-        if data and isinstance(data[0], (tuple, list)):
-            processed_data = [float(item[1]) for item in data]
-        else:
-            processed_data = [float(item) for item in data]
-        
-        X, y = [], []
-        
-        for i in range(len(processed_data) - self.seq_length):
-            seq = processed_data[i:i+self.seq_length]
-            target = processed_data[i+self.seq_length]
-            
-            X.append(seq)
-            y.append(target)
-        
-        X = torch.tensor(X, dtype=torch.float32).unsqueeze(-1)  # Add feature dimension
-        y = torch.tensor(y, dtype=torch.float32)
-        
-        print(f"🔧 Enhanced LSTM: Prepared sequences shape: {X.shape}")
-        print(f"🔧 Enhanced LSTM: Prepared targets shape: {y.shape}")
-        
-        return X, y
-    
-    def train(self, data, epochs=100, batch_size=32, validation_split=0.2, verbose=True, tqdm_desc="Training"):
-        """Train the model"""
-        # Prepare data
-        X, y = self.prepare_sequences(data)
-        
-        # Split data
-        split_idx = int(len(X) * (1 - validation_split))
-        X_train, X_val = X[:split_idx], X[split_idx:]
-        y_train, y_val = y[:split_idx], y[split_idx:]
-        
-        # Update scheduler
-        self.scheduler.T_max = epochs
-        
-        # Training loop
-        train_losses = []
-        val_losses = []
-        
-        epoch_iterator = tqdm(range(epochs), desc=tqdm_desc, leave=False)
-        for epoch in epoch_iterator:
-            # Training
-            self.model.train()
-            total_train_loss = 0
-            num_batches = 0
-            
-            for i in range(0, len(X_train), batch_size):
-                batch_X = X_train[i:i + batch_size].to(self.device)
-                batch_y = y_train[i:i + batch_size].to(self.device)
-                
-                self.optimizer.zero_grad()
-                predictions = self.model(batch_X)
-                loss = self.criterion(predictions, batch_y)
-                loss.backward()
-                
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                
-                self.optimizer.step()
-                
-                total_train_loss += loss.item()
-                num_batches += 1
-            
-            # Validation
-            self.model.eval()
-            with torch.no_grad():
-                val_predictions = self.model(X_val.to(self.device))
-                val_loss = self.criterion(val_predictions, y_val.to(self.device)).item()
-            
-            # Update learning rate
-            self.scheduler.step()
-            
-            train_losses.append(total_train_loss / num_batches)
-            val_losses.append(val_loss)
-            
-            # Update tqdm description
-            epoch_iterator.set_description(f"{tqdm_desc} | Epoch {epoch+1}/{epochs} | Val Loss: {val_loss:.4f}")
-        
-        self.is_trained = True
-        return {'train_losses': train_losses, 'val_losses': val_losses}
-    
-    def predict_with_confidence(self, sequence):
-        """Make prediction with confidence - required for rolling training system"""
+
+    def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
-        
-        # Ensure correct length
-        if len(sequence) < self.seq_length:
-            sequence = [sequence[0]] * (self.seq_length - len(sequence)) + list(sequence)
-        sequence = sequence[-self.seq_length:]
-        
+
+        if len(sequence) != self.sequence_length:
+             raise ValueError(f"Sequence must have length {self.sequence_length}")
+
         try:
             self.model.eval()
             with torch.no_grad():
@@ -296,6 +172,9 @@ class EnhancedLSTMPredictor:
                 probability = predictions['probability'].squeeze().item()
                 confidence = predictions['confidence'].squeeze().item()
                 
+                if any(np.isnan([v]) for v in [value, probability, confidence]):
+                    raise ValueError("Model produced invalid predictions (NaN)")
+
                 return float(value), float(probability), float(confidence)
                 
         except Exception as e:

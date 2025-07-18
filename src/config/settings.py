@@ -5,7 +5,7 @@ Loads settings from the central config.yaml file.
 
 import os
 import yaml
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # --- Merkezi Konfigürasyon Yükleyici ---
 
@@ -71,9 +71,13 @@ def get_model_config(model_name: str) -> Dict[str, Any]:
     """Get configuration for a specific model."""
     return CONFIG.get('models', {}).get(model_name, {})
 
-def get_aggressive_training_profiles() -> Dict[str, Any]:
-    """Returns the aggressive training profiles for Colab."""
-    return CONFIG.get('aggressive_training_profiles', {})
+def get_model_default_params(model_name: str) -> Dict[str, Any]:
+    """Gets the default parameters for a given model."""
+    return CONFIG.get('models', {}).get(model_name, {}).get('default_params', {})
+
+def get_hpo_space(model_name: str) -> Optional[Dict[str, Any]]:
+    """Gets the HPO search space for a given model."""
+    return CONFIG.get('models', {}).get(model_name, {}).get('hpo_space')
 
 def get_all_models() -> List[str]:
     """Get list of all models."""
