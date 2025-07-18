@@ -293,7 +293,7 @@ class MasterTrainer:
                             best_cycle = min(model_results, key=lambda x: x['performance']['mae'])
                             mlflow.log_metrics({
                                 'best_mae': best_cycle['performance']['mae'],
-                                'best_accuracy': best_cycle['performance']['accuracy'],
+                                'best_threshold_accuracy': best_cycle['performance'].get('threshold_accuracy', 0),
                                 'best_rmse': best_cycle['performance']['rmse']
                             })
                             mlflow.log_artifact(best_cycle['model_path'])
