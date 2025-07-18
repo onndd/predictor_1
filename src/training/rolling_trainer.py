@@ -38,6 +38,20 @@ def get_model_predictor(model_type: str) -> Any:
         print(f"❌ Could not import model {model_type} from {MODEL_MAP[model_type]}: {e}")
         raise
 
+def _convert_to_native_types(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively converts numpy types in a dictionary to native Python types for JSON serialization."""
+    if isinstance(data, dict):
+        return {key: _convert_to_native_types(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [_convert_to_native_types(item) for item in data]
+    elif isinstance(data, np.integer):
+        return int(data)
+    elif isinstance(data, np.floating):
+        return float(data)
+    elif isinstance(data, np.ndarray):
+        return data.tolist()
+    return data
+
 class RollingTrainer:
     """
     A refactored, generic training system supporting multiple strategies.
@@ -252,7 +266,8 @@ class RollingTrainer:
                 if metadata_path:
                     with open(metadata_path, 'r+') as f:
                         metadata = json.load(f)
-                        metadata.update({'performance': performance, 'cycle': cycle + 1})
+                        performance_native = _convert_to_native_types(performance)
+                        metadata.update({'performance': performance_native, 'cycle': cycle + 1})
                         f.seek(0)
                         json.dump(metadata, f, indent=4)
                         f.truncate()
