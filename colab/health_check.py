@@ -9,7 +9,8 @@ import subprocess
 import torch
 import traceback
 import warnings
-from typing import Optional
+from typing import Optional, Dict, Any, List
+import yaml
 
 # Uyarıları bastır
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -23,7 +24,26 @@ class ColabHealthCheck:
         self.repo_url = "https://github.com/onndd/predictor_1.git"
         self.gpu_info = None
         self.system_info = {}
-        
+        self.config: Dict[str, Any] = {}
+        self.db_path: str = ""
+
+    def _load_config(self) -> bool:
+        """Proje yapılandırmasını yükler."""
+        try:
+            # Add src to path to find settings
+            src_path = os.path.join(self.project_dir, "src")
+            if src_path not in sys.path:
+                sys.path.insert(0, src_path)
+
+            from config.settings import CONFIG, DATABASE_PATH
+            self.config = CONFIG
+            self.db_path = os.path.join(self.project_dir, DATABASE_PATH)
+            print("✅ Yapılandırma dosyası başarıyla yüklendi.")
+            return True
+        except Exception as e:
+            print(f"❌ Yapılandırma yüklenemedi: {e}")
+            return False
+
     def check_gpu_availability(self):
         """GPU durumunu kontrol et"""
         try:
@@ -153,17 +173,83 @@ class ColabHealthCheck:
             print(f"❌ Database kontrolü sırasında hata: {e}")
             return False
     
+    def _validate_config(self) -> List[str]:
+        """Yapılandırma dosyasını doğrular."""
+        errors = []
+        if not self.config:
+            errors.append("Yapılandırma (config) boş veya yüklenemedi.")
+            return errors
+
+        # HPO arama uzayını doğrula
+        hpo_config = self.config.get('hpo_search_space', {})
+        for model, space in hpo_config.items():
+            if not isinstance(space, dict): continue
+            for param, values in space.items():
+                if isinstance(values, dict) and 'low' in values and 'high' in values:
+                    if values['low'] >= values['high']:
+                        errors.append(f"HPO '{model} -> {param}': 'low' ({values['low']}) >= 'high' ({values['high']}).")
+
+        # Eğitim profillerini doğrula
+        profiles = self.config.get('aggressive_training_profiles', {})
+        for model, profile in profiles.items():
+            if 'sequence_length' not in profile:
+                errors.append(f"Profil '{model}': 'sequence_length' eksik.")
+        
+        return errors
+
+    def _check_data_compatibility(self) -> List[str]:
+        """Veri sayısı ile sequence_length uyumluluğunu kontrol eder."""
+        errors = []
+        if not self.config or not self.db_path or not os.path.exists(self.db_path):
+            errors.append("Veri uyumluluk kontrolü için config veya veritabanı bulunamadı.")
+            return errors
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            data_count = conn.execute("SELECT COUNT(*) FROM jetx_results").fetchone()[0]
+            conn.close()
+
+            profiles = self.config.get('aggressive_training_profiles', {})
+            for model, profile in profiles.items():
+                seq_len = profile.get('sequence_length')
+                if seq_len and data_count < seq_len * 1.5:
+                    errors.append(f"Veri '{model}': Gerekli veri ({int(seq_len * 1.5)}) > mevcut veri ({data_count}).")
+            return errors
+        except Exception as e:
+            errors.append(f"Veritabanı uyumluluk kontrol hatası: {e}")
+            return errors
+
     def run_pre_training_checks(self):
         """Eğitim öncesi tüm kontrolleri yap"""
         print("🔍 Eğitim öncesi sistem kontrolleri başlatılıyor...")
         print("=" * 60)
         
+        # Temel kurulum ve kontroller
         checks = {
-            'gpu': self.check_gpu_availability(),
-            'python': self.check_python_environment(),
-            'setup': self.setup_environment_safe(),
-            'database': self.check_database_status()
+            'GPU': self.check_gpu_availability(),
+            'Python Ortamı': self.check_python_environment(),
+            'Proje Kurulumu': self.setup_environment_safe(),
+            'Veritabanı Durumu': self.check_database_status(),
+            'Yapılandırma Yükleme': self._load_config()
         }
+
+        # Gelişmiş kontroller (eğer temel kurulum başarılıysa)
+        if all(checks.values()):
+            config_errors = self._validate_config()
+            if config_errors:
+                checks['Yapılandırma Doğrulama'] = False
+                print("\n❌ Yapılandırma Hataları:")
+                for err in config_errors: print(f"  - {err}")
+            else:
+                checks['Yapılandırma Doğrulama'] = True
+
+            data_errors = self._check_data_compatibility()
+            if data_errors:
+                checks['Veri Uyumluluğu'] = False
+                print("\n❌ Veri Uyumluluk Hataları:")
+                for err in data_errors: print(f"  - {err}")
+            else:
+                checks['Veri Uyumluluğu'] = True
         
         print("\n📋 Kontrol Sonuçları:")
         for check_name, result in checks.items():

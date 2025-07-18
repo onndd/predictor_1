@@ -30,6 +30,7 @@ from src.config.settings import get_aggressive_training_profiles, PATHS, CONFIG
 from src.data_processing.loader import load_data_from_sqlite
 from src.training.rolling_trainer import RollingTrainer
 from src.training.model_registry import ModelRegistry
+from src.evaluation.reporting import generate_text_report, generate_performance_plot
 
 class MasterTrainer:
     """
@@ -146,7 +147,7 @@ class MasterTrainer:
                 elif space['type'] == 'int':
                     trial_profile[param] = trial.suggest_int(param, space['low'], space['high'])
             
-            print(f"  [HPO Trial] Testing params: {trial.params}")
+            print(f"  [HPO Trial #{trial.number}] Testing params: {trial.params}")
 
             # Use a smaller subset of data for faster HPO
             hpo_chunks = chunks[:min(3, len(chunks))] # Use first 3 chunks for speed
@@ -162,14 +163,23 @@ class MasterTrainer:
             try:
                 results = trainer.execute_rolling_training()
                 if not results:
-                    return float('inf') # Return a large value if training fails
+                    print(f"  [HPO Trial #{trial.number}] ⚠️  No results returned from training. Pruning.")
+                    raise optuna.exceptions.TrialPruned("Training returned no results.")
                 
-                # We want to minimize MAE
                 avg_mae = np.mean([r['performance']['mae'] for r in results])
+                trial.set_user_attr("avg_mae", avg_mae) # Store result for logging
                 return float(avg_mae)
+            except optuna.exceptions.TrialPruned as e:
+                # Re-raise to let Optuna handle it
+                raise e
             except Exception as e:
-                print(f"  [HPO Trial] Exception: {e}")
-                return float('inf') # Penalize failed trials
+                error_msg = f"  [HPO Trial #{trial.number}] ❌ FAILED. Params: {trial.params}. Error: {e}"
+                print(error_msg)
+                traceback.print_exc(limit=1)
+                trial.set_user_attr("status", "FAILED")
+                trial.set_user_attr("error", str(e))
+                # Return a high value to penalize this trial
+                return float('inf')
 
         return objective
 
@@ -185,16 +195,44 @@ class MasterTrainer:
         study = optuna.create_study(direction='minimize')
         n_trials = CONFIG.get('hpo_search_space', {}).get('n_trials', 20)
         
-        study.optimize(objective_func, n_trials=n_trials)
+        # MLflow entegrasyonu ile HPO
+        mlflow.set_tag("hpo_model", model_name)
+        study.optimize(objective_func, n_trials=n_trials, callbacks=[self._mlflow_callback])
         
-        print(f"🏆 HPO finished for {model_name}. Best MAE: {study.best_value:.4f}")
-        print(f"  - Best params: {study.best_params}")
+        pruned_trials = study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.PRUNED])
+        complete_trials = study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE])
+        failed_trials = study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.FAIL])
+
+        print(f"🏆 HPO finished for {model_name}: {len(complete_trials)} complete, {len(pruned_trials)} pruned, {len(failed_trials)} failed.")
         
-        # Update the original profile with the best parameters found
-        optimized_profile = copy.deepcopy(profile)
-        optimized_profile.update(study.best_params)
+        if study.best_trial:
+            print(f"  - Best MAE: {study.best_value:.4f}")
+            print(f"  - Best params: {study.best_trial.params}")
+            # Update the original profile with the best parameters found
+            optimized_profile = copy.deepcopy(profile)
+            optimized_profile.update(study.best_trial.params)
+        else:
+            print("  ⚠️ HPO could not find a best trial. Using the base profile.")
+            optimized_profile = profile # Fallback to base profile
         
         return optimized_profile
+    
+    def _mlflow_callback(self, study: optuna.Study, trial: optuna.trial.FrozenTrial):
+        """Callback to log Optuna trials to MLflow."""
+        with mlflow.start_run(run_name=f"hpo_{study.study_name}_trial_{trial.number}", nested=True) as run:
+            mlflow.log_params(trial.params)
+            
+            # Log user attributes (custom metrics or errors)
+            for key, value in trial.user_attrs.items():
+                mlflow.set_tag(key, value)
+            
+            if trial.state == optuna.trial.TrialState.COMPLETE:
+                mlflow.log_metric("value", trial.value)
+                mlflow.set_tag("status", "COMPLETE")
+            elif trial.state == optuna.trial.TrialState.PRUNED:
+                mlflow.set_tag("status", "PRUNED")
+            elif trial.state == optuna.trial.TrialState.FAIL:
+                mlflow.set_tag("status", "FAILED")
 
     def run(self):
         """
@@ -258,32 +296,33 @@ class MasterTrainer:
         self._finalize_and_report()
 
     def _finalize_and_report(self):
-        """Finalizes the training and prints a summary report."""
+        """Finalizes the training and generates a comprehensive report."""
         print("\n\n🎉 PIPELINE COMPLETED: All models have been trained. 🎉")
         print("="*60)
-        print("\n📊 Final Training Summary:")
-
-        if not self.results:
-            print("No models were trained successfully.")
-            return
-
-        for model_name, model_results in self.results.items():
-            if not model_results:
-                print(f"\n--- {model_name} ---")
-                print("  No successful cycles.")
-                continue
-
-            best_cycle = min(model_results, key=lambda x: x['performance']['mae'])
-            print(f"\n--- {model_name} (Best Cycle: {best_cycle['cycle']}) ---")
-            print(f"  - Best MAE: {best_cycle['performance']['mae']:.4f}")
-            print(f"  - Best Accuracy: {best_cycle['performance']['accuracy']:.4f}")
-            print(f"  - Model Path: {best_cycle['model_path']}")
-
-        print("\n\n💾 All trained models and metadata are saved in:", PATHS['models_dir'])
         
-        # Export final registry
+        # 1. Generate and print the text report
+        text_report = generate_text_report(self.results)
+        print(text_report)
+
+        # 2. Generate and save the performance plot
+        reports_dir = os.path.join(PATHS['models_dir'], '..', 'reports')
+        os.makedirs(reports_dir, exist_ok=True)
+        report_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        plot_path = os.path.join(reports_dir, f"performance_report_{report_timestamp}.png")
+        
+        plot_saved = generate_performance_plot(self.results, plot_path)
+        if plot_saved:
+            print(f"\n📈 Performance comparison plot saved to: {plot_path}")
+
+        # 3. Save the text report to a file
+        report_path = os.path.join(reports_dir, f"training_summary_{report_timestamp}.txt")
+        with open(report_path, 'w') as f:
+            f.write(text_report)
+        print(f"📋 Text report saved to: {report_path}")
+
+        # 4. Export the final model registry
         registry_path = self.model_registry.export_to_json()
-        print(f"📋 Full model registry exported to: {registry_path}")
+        print(f"📦 Full model registry exported to: {registry_path}")
 
 if __name__ == '__main__':
     # This allows running the trainer directly for testing

@@ -5,10 +5,10 @@ from scipy import stats
 
 def calculate_basic_stats(values, window_sizes=[10, 20, 50, 100, 200]):
     """
-    Temel istatistiksel özellikleri hesaplar
+    Temel istatistiksel özellikleri (ortalama ve std olmadan) hesaplar
     """
     n_samples = len(values)
-    n_features = len(window_sizes) * 7
+    n_features = len(window_sizes) * 5  # 7'den 5'e düşürüldü
     features = np.zeros((n_samples, n_features))
     
     for i in range(n_samples):
@@ -18,25 +18,23 @@ def calculate_basic_stats(values, window_sizes=[10, 20, 50, 100, 200]):
             window_vals = values[start:i]
             
             if len(window_vals) == 0:
-                feature_idx += 7
+                feature_idx += 5  # 7'den 5'e düşürüldü
                 continue
             
-            mean = np.mean(window_vals)
+            # mean ve std kaldırıldı
             median = np.median(window_vals)
-            std = np.std(window_vals)
             min_val = np.min(window_vals)
             max_val = np.max(window_vals)
             skewness = stats.skew(window_vals) if len(window_vals) > 2 else 0
             kurtosis = stats.kurtosis(window_vals) if len(window_vals) > 2 else 0
             
-            features[i, feature_idx] = mean
-            features[i, feature_idx + 1] = median
-            features[i, feature_idx + 2] = std
-            features[i, feature_idx + 3] = min_val
-            features[i, feature_idx + 4] = max_val
-            features[i, feature_idx + 5] = skewness
-            features[i, feature_idx + 6] = kurtosis
-            feature_idx += 7
+            # İndeksleme güncellendi
+            features[i, feature_idx] = median
+            features[i, feature_idx + 1] = min_val
+            features[i, feature_idx + 2] = max_val
+            features[i, feature_idx + 3] = skewness
+            features[i, feature_idx + 4] = kurtosis
+            feature_idx += 5  # 7'den 5'e düşürüldü
     return features
 
 def calculate_threshold_runs(values, threshold=1.5, max_run_length=10):
