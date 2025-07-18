@@ -15,7 +15,8 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from src.training.model_registry import ModelRegistry
 from src.config.settings import PATHS
-from src.evaluation.metrics import calculate_threshold_metrics # YENİ İMPORT
+from src.evaluation.metrics import calculate_threshold_metrics
+from src.data_processing.manager import DataManager # YENİ İMPORT
 
 # A factory to get model classes dynamically
 def get_model_predictor(model_type: str) -> Any:
@@ -69,6 +70,7 @@ class RollingTrainer:
         self.enable_checkpointing = enable_checkpointing
         self.models_dir = PATHS['models_dir']
         self.checkpoint_dir = os.path.join(self.models_dir, 'checkpoints')
+        self.data_manager = DataManager(use_cache=False) # Rolling trainer için cache kullanmıyoruz
         os.makedirs(self.models_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
@@ -250,7 +252,12 @@ class RollingTrainer:
                 train_params['tqdm_desc'] = f"Cycle {cycle + 1}"
                 
                 print(f"  - Model eğitimi başlıyor...")
-                model.train(data=train_data, **train_params)
+                
+                # Veriyi DataManager ile hazırla
+                X_train, y_train = self.data_manager.prepare_sequences(train_data, sequence_length)
+                
+                # Modeli eğit
+                model.train(X=X_train, y=y_train, **train_params)
                 
                 print(f"  - Model testi başlıyor...")
                 performance = self._test_model(model, test_data)
@@ -317,7 +324,12 @@ class RollingTrainer:
             try:
                 train_params = self.config.get('train_params', {})
                 train_params['tqdm_desc'] = f"Cycle {cycle + 1}"
-                model.train(data=train_data, **train_params)
+                
+                # Veriyi DataManager ile hazırla
+                X_train, y_train = self.data_manager.prepare_sequences(train_data, self.config.get('sequence_length', 200))
+                
+                # Modeli eğit
+                model.train(X=X_train, y=y_train, **train_params)
                 
                 performance = self._test_model(model, test_data)
                 if not performance: continue

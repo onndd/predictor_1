@@ -98,11 +98,16 @@ class EnhancedTFTPredictor(BasePredictor):
     """
     def _build_model(self, **kwargs) -> nn.Module:
         """Build the JetX-enhanced TFT model."""
+        # These parameters are now passed directly from the config via kwargs
+        self.hidden_size = kwargs.get('hidden_size', 256)
+        self.num_heads = kwargs.get('num_heads', 8)
+        self.num_layers = kwargs.get('num_layers', 2)
+        
         return JetXTFTModel(
             input_size=1,
-            hidden_size=kwargs.get('hidden_size', 256),
-            num_heads=kwargs.get('num_heads', 8),
-            num_layers=kwargs.get('num_layers', 2),
+            hidden_size=self.hidden_size,
+            num_heads=self.num_heads,
+            num_layers=self.num_layers,
             forecast_horizon=1,
             threshold=kwargs.get('threshold', 1.5)
         )
@@ -148,7 +153,7 @@ class EnhancedTFTPredictor(BasePredictor):
                 
                 # Validate outputs
                 import numpy as np
-                if any(np.isnan([value, probability, confidence])) or any(np.isinf([value, probability, confidence])):
+                if any(np.isnan([v]) for v in [value, probability, confidence]) or any(np.isinf([v]) for v in [value, probability, confidence]):
                     raise ValueError("Model produced invalid predictions")
                 
                 return float(value), float(probability), float(confidence), attention_weights
@@ -173,7 +178,7 @@ class EnhancedTFTPredictor(BasePredictor):
     
     def load_model(self, filepath: str):
         """Load a trained model"""
-        checkpoint = torch.load(filepath)
+        checkpoint = torch.load(filepath, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.training_history = checkpoint['training_history']

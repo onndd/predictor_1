@@ -122,15 +122,20 @@ class EnhancedLSTMPredictor(BasePredictor):
     def __init__(self, sequence_length: int = 200, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
         # sequence_length must be set before calling super().__init__
         self.sequence_length = sequence_length
+        # Store other params needed for _build_model
+        self.n_features = kwargs.get('n_features', 1)
+        self.hidden_size = kwargs.get('hidden_size', 128)
+        self.num_layers = kwargs.get('num_layers', 2)
+        self.threshold = kwargs.get('threshold', 1.5)
         super().__init__(sequence_length=sequence_length, learning_rate=learning_rate, device=device, **kwargs)
 
     def _build_model(self, **kwargs) -> nn.Module:
         """Build the JetX-enhanced LSTM model."""
         return JetXLSTMModel(
-            input_size=kwargs.get('n_features', 1),
-            hidden_size=kwargs.get('hidden_size', 128),
-            num_layers=kwargs.get('num_layers', 2),
-            threshold=kwargs.get('threshold', 1.5)
+            input_size=self.n_features,
+            hidden_size=self.hidden_size,
+            num_layers=self.num_layers,
+            threshold=self.threshold
         )
 
     def _create_loss_function(self, **kwargs) -> nn.Module:

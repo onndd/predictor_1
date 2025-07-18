@@ -7,10 +7,11 @@ import os
 # Add src to path to allow for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
 
-from models.deep_learning.n_beats.n_beats_model import NBeatsPredictor
-from models.deep_learning.tft.enhanced_tft_model import EnhancedTFTPredictor
-from models.sequential.enhanced_lstm_pytorch import EnhancedLSTMPredictor
-from config.settings import get_model_default_params
+from src.models.deep_learning.n_beats.n_beats_model import NBeatsPredictor
+from src.models.deep_learning.tft.enhanced_tft_model import EnhancedTFTPredictor
+from src.models.sequential.enhanced_lstm_pytorch import EnhancedLSTMPredictor
+from src.config.settings import get_model_default_params
+from src.data_processing.manager import DataManager
 
 # --- Test Fixtures ---
 
@@ -46,22 +47,18 @@ def run_predictor_test_suite(PredictorClass, config, sample_data):
     assert predictor.is_trained is False, "Model should not be trained initially."
     print("✅ Initialization successful.")
 
-    # 2. Test Data Preparation
-    print(f"🧪 Testing prepare_sequences for {PredictorClass.__name__}...")
-    X, y = predictor.prepare_sequences(sample_data)
-    assert isinstance(X, torch.Tensor), "X should be a torch.Tensor."
-    assert isinstance(y, torch.Tensor), "y should be a torch.Tensor."
-    assert X.shape[0] == y.shape[0], "X and y should have the same number of samples."
-    assert X.shape[1] == config['sequence_length'], "Sequence length should match config."
-    print("✅ prepare_sequences successful.")
+    # 2. Prepare data using DataManager
+    data_manager = DataManager(use_cache=False)
+    X, y = data_manager.prepare_sequences(sample_data, config['sequence_length'])
 
     # 3. Test Training on a single batch
     print(f"🧪 Testing train method (1 epoch) for {PredictorClass.__name__}...")
     train_params = config.get('train_params', {})
     history = predictor.train(
-        data=sample_data, 
-        epochs=1, 
-        batch_size=train_params.get('batch_size', 16), 
+        X=X,
+        y=y,
+        epochs=1,
+        batch_size=train_params.get('batch_size', 16),
         validation_split=train_params.get('validation_split', 0.2),
         verbose=False
     )

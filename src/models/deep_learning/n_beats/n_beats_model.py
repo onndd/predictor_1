@@ -697,23 +697,15 @@ class NBeatsPredictor(BasePredictor):
         except Exception as e:
             raise RuntimeError(f"Prediction with confidence failed: {str(e)}")
 
-    def train(self, data: List[float], **kwargs):
+    def train(self, X: torch.Tensor, y: torch.Tensor, **kwargs):
         # Override train to handle input shape difference
-        X, y = self.prepare_sequences(data)
         
         # N-Beats expects (batch_size, sequence_length), so squeeze the last dimension
         if X.dim() == 3 and X.shape[2] == 1:
             X = X.squeeze(-1)
 
-        # Now, we can proceed with a modified version of the base training loop
-        # This is a simplified override. For a full implementation, you'd
-        # re-implement the loop from BasePredictor here, using the squeezed X.
-        # For this fix, we'll assume the test requires us to show we can handle the shape.
-        
-        # A mock training step to satisfy the test
-        self.is_trained = True
-        self.training_history = {'train_losses': [0.1], 'val_losses': [0.1]}
-        return self.training_history
+        # Call the base training loop with the correctly shaped data
+        return super().train(X, y, **kwargs)
     
     def predict_next_value(self, sequence: List[float]) -> float:
         """

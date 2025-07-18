@@ -1,0 +1,26 @@
+============================================================
+📊 JETX MODEL TRAINING - FINAL PERFORMANCE REPORT
+Rapor Tarihi: 2025-07-18 23:58:57
+============================================================
+
+🏆 EN İYİ MODEL (F1-Skoruna Göre)
+   - Model: N-Beats
+   - F1-Skoru: 0.6500
+   - Recall (Duyarlılık): 0.7000 (Crash'leri yakalama oranı)
+   - Precision (Kesinlik): 0.0000
+   - Ortalama Mutlak Hata (MAE): 0.5000
+
+------------------------------------------------------------
+MODEL DETAYLARI
+------------------------------------------------------------
+
+--- N-Beats ---
+  - Toplam Döngü: 1
+  - Ortalama F1-Skoru: 0.6500
+  - Ortalama Recall: 0.7000
+  - Ortalama MAE: 0.5000
+  - En İyi Döngü (Cycle 1):
+    - F1-Skoru: 0.6500
+    - Recall: 0.7000
+    - MAE: 0.5000
+    - Model Yolu: N-Beats_cycle_1_mock.pth

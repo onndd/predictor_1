@@ -53,46 +53,23 @@ class BasePredictor(ABC):
         """Create the loss function. Must be implemented by subclasses."""
         pass
 
-    def prepare_sequences(self, data: List[float]) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Prepare sequences for training. This method is shared across all predictors.
-        """
-        processed_data = []
-        if data and len(data) > 0:
-            first_item = data[0]
-            if isinstance(first_item, (tuple, list)) and len(first_item) > 1:
-                processed_data = [float(item[1]) for item in data if isinstance(item, (tuple, list)) and len(item) > 1]
-            else:
-                processed_data = [float(item) for item in data]
-        else:
-            return torch.empty(0, self.sequence_length, 1), torch.empty(0)
-
-        sequences, targets = [], []
-        for i in range(len(processed_data) - self.sequence_length):
-            seq = processed_data[i:i + self.sequence_length]
-            target = processed_data[i + self.sequence_length]
-            sequences.append(seq)
-            targets.append(target)
-        
-        # Reshape for models that need a final feature dimension
-        sequences_tensor = torch.tensor(sequences, dtype=torch.float32)
-        if len(sequences_tensor.shape) == 2:
-             sequences_tensor = sequences_tensor.unsqueeze(-1)
-
-        targets_tensor = torch.tensor(targets, dtype=torch.float32)
-        
-        print(f"🔧 {self.__class__.__name__}: Prepared sequences shape: {sequences_tensor.shape}")
-        print(f"🔧 {self.__class__.__name__}: Prepared targets shape: {targets_tensor.shape}")
-        
-        return sequences_tensor, targets_tensor
-
-    def train(self, data: List[float], epochs: int = 100, batch_size: int = 32,
+    def train(self, X: torch.Tensor, y: torch.Tensor, epochs: int = 100, batch_size: int = 32,
               validation_split: float = 0.2, verbose: bool = True, tqdm_desc: str = "Training") -> dict:
         """
-        Generic training loop for all models.
-        """
-        X, y = self.prepare_sequences(data)
+        Generic training loop for all models. Assumes data is already prepared.
         
+        Args:
+            X (torch.Tensor): Input sequences tensor.
+            y (torch.Tensor): Target values tensor.
+            epochs (int): Number of training epochs.
+            batch_size (int): Training batch size.
+            validation_split (float): Fraction of data for validation.
+            verbose (bool): Whether to print progress.
+            tqdm_desc (str): Description for the progress bar.
+        
+        Returns:
+            dict: Training history.
+        """
         if len(X) == 0:
             print("⚠️ Not enough data to train.")
             return {}
