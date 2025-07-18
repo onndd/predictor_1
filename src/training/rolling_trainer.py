@@ -38,19 +38,20 @@ def get_model_predictor(model_type: str) -> Any:
         print(f"❌ Could not import model {model_type} from {MODEL_MAP[model_type]}: {e}")
         raise
 
-def _convert_to_native_types(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively converts numpy types in a dictionary to native Python types for JSON serialization."""
-    if isinstance(data, dict):
-        return {key: _convert_to_native_types(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [_convert_to_native_types(item) for item in data]
-    elif isinstance(data, np.integer):
-        return int(data)
-    elif isinstance(data, np.floating):
-        return float(data)
-    elif isinstance(data, np.ndarray):
-        return data.tolist()
-    return data
+class NumpyJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder for numpy types.
+    Converts numpy integers, floats, and arrays to native Python types.
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyJSONEncoder, self).default(obj)
+
 
 class RollingTrainer:
     """
@@ -184,7 +185,7 @@ class RollingTrainer:
             classification_metrics['mae'] = mae
             classification_metrics['rmse'] = rmse
             
-            return _convert_to_native_types(classification_metrics)
+            return classification_metrics
         except Exception as e:
             print(f"❌ Model testing error: {e}")
             traceback.print_exc()
@@ -201,11 +202,11 @@ class RollingTrainer:
             metadata = {
                 'model_name': model_name,
                 'model_type': self.model_type,
-                'config': _convert_to_native_types(self.config),
+                'config': self.config,
                 'timestamp': datetime.now().isoformat()
             }
             with open(metadata_path, 'w') as f:
-                json.dump(metadata, f, indent=4)
+                json.dump(metadata, f, indent=4, cls=NumpyJSONEncoder)
             
             print(f"💾 Model saved: {model_path}")
             return model_path, metadata_path
@@ -266,10 +267,9 @@ class RollingTrainer:
                 if metadata_path:
                     with open(metadata_path, 'r+') as f:
                         metadata = json.load(f)
-                        performance_native = _convert_to_native_types(performance)
-                        metadata.update({'performance': performance_native, 'cycle': cycle + 1})
+                        metadata.update({'performance': performance, 'cycle': cycle + 1})
                         f.seek(0)
-                        json.dump(metadata, f, indent=4)
+                        json.dump(metadata, f, indent=4, cls=NumpyJSONEncoder)
                         f.truncate()
 
                 self.model_registry.register_model(model_name, self.model_type, self.config, performance, model_path, metadata_path)
@@ -280,7 +280,7 @@ class RollingTrainer:
                 self._save_checkpoint(model, model.optimizer, cycle)
 
             except Exception as e:
-                config_str = json.dumps(_convert_to_native_types(self.config), indent=4, default=str)
+                config_str = json.dumps(self.config, indent=4, cls=NumpyJSONEncoder)
                 print(f"❌ Cycle {cycle + 1} failed for model {self.model_type} with config {config_str}")
                 print(f"  - Hata: {e}")
                 traceback.print_exc()
