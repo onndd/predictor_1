@@ -201,7 +201,7 @@ class RollingTrainer:
             metadata = {
                 'model_name': model_name,
                 'model_type': self.model_type,
-                'config': self.config,
+                'config': _convert_to_native_types(self.config),
                 'timestamp': datetime.now().isoformat()
             }
             with open(metadata_path, 'w') as f:
@@ -280,7 +280,8 @@ class RollingTrainer:
                 self._save_checkpoint(model, model.optimizer, cycle)
 
             except Exception as e:
-                print(f"❌ Cycle {cycle + 1} failed for model {self.model_type} with config {self.config}")
+                config_str = json.dumps(_convert_to_native_types(self.config), indent=4, default=str)
+                print(f"❌ Cycle {cycle + 1} failed for model {self.model_type} with config {config_str}")
                 print(f"  - Hata: {e}")
                 traceback.print_exc()
         
