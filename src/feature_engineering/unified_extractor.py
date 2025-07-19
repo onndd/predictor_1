@@ -131,25 +131,21 @@ class UnifiedFeatureExtractor:
         # 1. Statistical Features
         # This is tricky as the functions don't expose names. We'll create generic ones.
         # A better refactor would be to have each stat function return names.
-        stat_windows = [10, 20, 50, 100, 200]
         basic_stat_names = ['median', 'min', 'max', 'skew', 'kurt']
-        names.extend([f"stat_{name}_{w}" for w in stat_windows for name in basic_stat_names])
+        names.extend([f"stat_{name}_{w}" for w in self.feature_windows for name in basic_stat_names])
         
         threshold_run_names = ['current_above_run', 'current_below_run', 'max_above_run', 'max_below_run']
         names.extend([f"stat_{name}" for name in threshold_run_names])
 
-        trend_windows = [10, 20, 50, 100]
         trend_names = ['slope', 'autocorr', 'strength']
-        names.extend([f"stat_trend_{name}_{w}" for w in trend_windows for name in trend_names])
+        names.extend([f"stat_trend_{name}_{w}" for w in self.feature_windows for name in trend_names])
 
         adv_stat_names = ['volatility', 'momentum', 'q25', 'q75']
-        names.extend([f"stat_adv_{name}_{w}" for w in trend_windows for name in adv_stat_names])
+        names.extend([f"stat_adv_{name}_{w}" for w in self.feature_windows for name in adv_stat_names])
 
-        lag_windows = [5, 10, 20, 50]
-        lags = [1, 2, 3, 5, 10]
-        names.extend([f"stat_lag_{l}" for l in lags])
-        names.extend([f"stat_roll_mean_{w}" for w in lag_windows])
-        names.extend([f"stat_roll_std_{w}" for w in lag_windows])
+        names.extend([f"stat_lag_{l}" for l in self.lags])
+        names.extend([f"stat_roll_mean_{w}" for w in self.lag_windows])
+        names.extend([f"stat_roll_std_{w}" for w in self.lag_windows])
 
         # 2. Categorical Features
         if self.categorical_encoder.one_hot_categories:

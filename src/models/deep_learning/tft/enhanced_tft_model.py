@@ -96,14 +96,14 @@ class EnhancedTFTPredictor(BasePredictor):
     """
     Enhanced TFT predictor with JetX-specific features, inheriting from BasePredictor.
     """
-    def __init__(self, sequence_length: int, input_size: int, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
+    def __init__(self, model_sequence_length: int, input_size: int, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
         # Store other params needed for _build_model
         self.hidden_size = kwargs.get('hidden_size', 256)
         self.num_heads = kwargs.get('num_heads', 8)
         self.num_layers = kwargs.get('num_layers', 2)
         self.threshold = kwargs.get('threshold', 1.5)
         # Call super().__init__ which will store input_size and call _build_model
-        super().__init__(sequence_length=sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
+        super().__init__(sequence_length=model_sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
 
     def _build_model(self, input_size: int, **kwargs) -> nn.Module:
         """Build the JetX-enhanced TFT model."""

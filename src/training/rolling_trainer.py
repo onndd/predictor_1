@@ -137,6 +137,12 @@ class RollingTrainer:
         model_config = self.config.copy()
         model_config['input_size'] = input_size
         
+        # Add the global model_sequence_length from the main config to the model's config
+        from src.config.settings import CONFIG
+        training_config = CONFIG.get('training', {})
+        if 'model_sequence_length' in training_config:
+            model_config['model_sequence_length'] = training_config['model_sequence_length']
+
         # Filter config to only pass parameters expected by the model's __init__
         import inspect
         sig = inspect.signature(model_class.__init__)
