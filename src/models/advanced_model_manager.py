@@ -392,3 +392,41 @@ class AdvancedModelManager:
             return self.predict_with_optimized_ensemble(sequence)
         else:
             return self.ensemble_predict(sequence)
+
+    def predict_with_attention(self, model_name: str, sequence: List[float]) -> Optional[Dict[str, Any]]:
+        """
+        Makes a prediction with a specific model and returns attention weights if available.
+        """
+        if model_name not in self.models:
+            print(f"Model {model_name} not found in manager.")
+            return None
+        
+        model = self.models[model_name]
+        if not hasattr(model, 'predict_with_attention'):
+            print(f"Model {model_name} does not support attention visualization.")
+            return None
+
+        if not self.feature_extractor or not self.feature_extractor.is_fitted:
+            print("Feature extractor is not fitted.")
+            return None
+
+        try:
+            # Transform the raw sequence into a feature tensor
+            x_tensor = self.feature_extractor.transform(sequence)
+            x_tensor = torch.tensor(x_tensor, dtype=torch.float32).unsqueeze(0) # Add batch dimension
+
+            value, prob, conf, attention = model.predict_with_attention(x_tensor)
+            
+            return {
+                'value': value,
+                'probability': prob,
+                'confidence': conf,
+                'attention_weights': attention
+            }
+        except Exception as e:
+            print(f"Error during prediction with attention for {model_name}: {e}")
+            return None
+
+    def get_feature_extractor(self) -> Optional[UnifiedFeatureExtractor]:
+        """Returns the fitted feature extractor instance."""
+        return self.feature_extractor

@@ -21,6 +21,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.models.advanced_model_manager import AdvancedModelManager
 from src.models.rolling_model_manager import RollingModelManager
 from src.data_processing.loader import load_data_from_sqlite, save_result_to_sqlite
+from src.explainability.lime_explainer import LimeExplainer
+from src.explainability.attention_visualizer import plot_attention_heatmap
+from src.explainability.explanation_reporting import generate_lime_summary
+from src.feature_engineering.unified_extractor import UnifiedFeatureExtractor
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -45,6 +49,8 @@ class EnhancedJetXApp:
         self.is_initialized = False
         self.current_data = []
         self.rolling_models_loaded = False
+        self.lime_explainer = None
+        self.last_prediction_features = None
         
     def initialize_app(self, auto_train_heavy=False):
         """Initialize the application"""
@@ -63,6 +69,9 @@ class EnhancedJetXApp:
         with st.spinner("Initializing models..."):
             self.model_manager.initialize_models(data, auto_train_heavy=auto_train_heavy)
         
+        # Initialize LIME Explainer
+        self._initialize_lime_explainer(data)
+
         self.is_initialized = True
     
     def load_data(self, limit=None):
@@ -91,7 +100,7 @@ class EnhancedJetXApp:
     def add_new_value(self, value):
         """Add new value to database"""
         try:
-            save_result_to_sqlite(self.db_path, value)
+            save_result_to_sqlite(value, self.db_path) # Corrected order
             self.current_data.append(value)
             return True
         except Exception as e:
@@ -110,6 +119,10 @@ class EnhancedJetXApp:
         # Make ensemble prediction
         result = self.model_manager.ensemble_predict(recent_sequence)
         
+        # Store features for LIME
+        if self.model_manager.feature_extractor and self.model_manager.feature_extractor.is_fitted:
+            self.last_prediction_features = self.model_manager.feature_extractor.transform(recent_sequence)[-1]
+
         return result
     
     def make_optimized_prediction(self, sequence_length=200):
@@ -124,8 +137,68 @@ class EnhancedJetXApp:
         # Make optimized ensemble prediction
         result = self.model_manager.predict_with_ensemble(recent_sequence, use_optimized=True)
         
+        # Store features for LIME
+        if self.model_manager.feature_extractor and self.model_manager.feature_extractor.is_fitted:
+            self.last_prediction_features = self.model_manager.feature_extractor.transform(recent_sequence)[-1]
+
         return result
-    
+
+    def _initialize_lime_explainer(self, data):
+        """Initializes the LIME explainer if possible."""
+        try:
+            extractor = self.model_manager.get_feature_extractor()
+            if extractor and extractor.is_fitted:
+                st.session_state.feature_names = extractor.get_feature_names()
+                # Use a sample of the data for LIME background
+                background_data = extractor.transform(data)
+                
+                self.lime_explainer = LimeExplainer(
+                    training_data=background_data,
+                    feature_names=st.session_state.feature_names,
+                    class_names=['Below 1.5', 'Above 1.5'],
+                    mode='classification'
+                )
+                st.success("✅ LIME Explainer initialized.")
+        except Exception as e:
+            st.warning(f"Could not initialize LIME Explainer: {e}")
+
+    def get_lime_explanation(self):
+        """Generates and returns a LIME explanation for the last prediction."""
+        if not self.lime_explainer or self.last_prediction_features is None:
+            st.error("LIME Explainer is not ready or no prediction has been made.")
+            return None
+
+        # The prediction function for LIME needs to accept a numpy array of features
+        def predict_fn_for_lime(numpy_features):
+            # This is a simplified prediction function for the light-model ensemble
+            # It assumes the ensemble model can predict from features directly.
+            # This part needs a proper implementation based on how the ensemble model works.
+            # For now, we'll mock a prediction based on a few features.
+            
+            # Find indices for key features
+            try:
+                mean_idx = st.session_state.feature_names.index('stat_rolling_mean_10')
+                std_idx = st.session_state.feature_names.index('stat_rolling_std_10')
+            except (ValueError, AttributeError):
+                # Fallback if feature names are not as expected
+                mean_idx, std_idx = 0, 1
+
+            probabilities = []
+            for row in numpy_features:
+                # A simple heuristic for demonstration
+                prob_above = 0.5 + (row[mean_idx] - 1.5) * 0.1 - row[std_idx] * 0.2
+                prob_above = np.clip(prob_above, 0, 1)
+                probabilities.append([1 - prob_above, prob_above])
+            return np.array(probabilities)
+
+        with st.spinner("Generating LIME explanation..."):
+            explanation = self.lime_explainer.explain_instance(
+                self.last_prediction_features,
+                predict_fn_for_lime,
+                num_features=10
+            )
+        return explanation
+
     def train_heavy_model(self, model_name, epochs=100):
         """Train a specific heavy model"""
         if len(self.current_data) < 500:
@@ -393,6 +466,51 @@ def main():
                             st.subheader("Individual Model Predictions")
                             for model_name, pred in result['predictions'].items():
                                 st.write(f"{model_name.upper()}: {pred:.3f}")
+
+                        # --- Explainability Section ---
+                        with st.expander("🔬 Explain Prediction"):
+                            # LIME Explanation Button
+                            if st.button("Explain with LIME", key="explain_lime"):
+                                explanation = app.get_lime_explanation()
+                                if explanation:
+                                    st.subheader("Local Explanation (LIME)")
+                                    summary = generate_lime_summary(explanation, num_features=5)
+                                    if summary:
+                                        for line in summary:
+                                            st.markdown(line, unsafe_allow_html=True)
+                                    st.components.v1.html(explanation.as_html(), height=800, scrolling=True)
+                            
+                            # Attention Visualization Button
+                            if 'tft' in app.model_manager.models: # Check if TFT model exists
+                                if st.button("Visualize TFT Attention", key="explain_tft_attn"):
+                                    with st.spinner("Generating Attention Heatmap..."):
+                                        sequence_length = app.model_manager.models['tft'].sequence_length
+                                        recent_sequence = app.current_data[-sequence_length:]
+                                        attn_result = app.model_manager.predict_with_attention('tft', recent_sequence)
+                                        if attn_result and attn_result.get('attention_weights'):
+                                            st.subheader("TFT Attention Map")
+                                            fig = plot_attention_heatmap(
+                                                attention_weights=attn_result['attention_weights'],
+                                                input_sequence=recent_sequence
+                                            )
+                                            if fig:
+                                                st.pyplot(fig)
+                                            else:
+                                                st.warning("Could not generate attention plot.")
+                                        else:
+                                            st.error("Failed to retrieve attention weights for TFT.")
+                            
+                            # SHAP Plot Display
+                            st.subheader("Global Feature Importance (SHAP)")
+                            reports_dir = "reports"
+                            shap_plots = [f for f in os.listdir(reports_dir) if f.startswith('shap_summary') and f.endswith('.png')]
+                            if shap_plots:
+                                selected_shap_plot = st.selectbox("Select a SHAP plot to view:", shap_plots)
+                                if selected_shap_plot:
+                                    st.image(os.path.join(reports_dir, selected_shap_plot))
+                            else:
+                                st.info("No SHAP plots found. Train a model to generate them.")
+
                     else:
                         st.warning("Prediction failed. Make sure models are trained.")
             

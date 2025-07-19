@@ -108,27 +108,64 @@ class UnifiedFeatureExtractor:
         return self.fit(values).transform(values)
 
     def _generate_feature_names(self, sample_values: List[float]):
-        """Generates a list of all feature names."""
-        # This is a simplified way to get feature names.
-        # A more robust implementation would have each encoder return its feature names.
-        
-        stat_features = extract_statistical_features(sample_values)
-        cat_features = self.categorical_encoder.transform(sample_values)
-        ngram_features = self.ngram_encoder.transform(sample_values)
-        sim_features = self.similarity_encoder.transform(sample_values, self.sequence_length)
-        
+        """Generates a list of all feature names based on the fitted encoders."""
+        if not self.is_fitted:
+            raise RuntimeError("Must fit the extractor before generating feature names.")
+
         names = []
-        names.extend([f"stat_{i}" for i in range(stat_features.shape[1])])
-        names.extend([f"cat_{i}" for i in range(cat_features.shape[1])])
-        names.extend([f"ngram_{i}" for i in range(ngram_features.shape[1])])
-        names.extend([f"sim_{i}" for i in range(sim_features.shape[1])])
+        
+        # 1. Statistical Features
+        # This is tricky as the functions don't expose names. We'll create generic ones.
+        # A better refactor would be to have each stat function return names.
+        stat_windows = [10, 20, 50, 100, 200]
+        basic_stat_names = ['median', 'min', 'max', 'skew', 'kurt']
+        names.extend([f"stat_{name}_{w}" for w in stat_windows for name in basic_stat_names])
+        
+        threshold_run_names = ['current_above_run', 'current_below_run', 'max_above_run', 'max_below_run']
+        names.extend([f"stat_{name}" for name in threshold_run_names])
+
+        trend_windows = [10, 20, 50, 100]
+        trend_names = ['slope', 'autocorr', 'strength']
+        names.extend([f"stat_trend_{name}_{w}" for w in trend_windows for name in trend_names])
+
+        adv_stat_names = ['volatility', 'momentum', 'q25', 'q75']
+        names.extend([f"stat_adv_{name}_{w}" for w in trend_windows for name in adv_stat_names])
+
+        lag_windows = [5, 10, 20, 50]
+        lags = [1, 2, 3, 5, 10]
+        names.extend([f"stat_lag_{l}" for l in lags])
+        names.extend([f"stat_roll_mean_{w}" for w in lag_windows])
+        names.extend([f"stat_roll_std_{w}" for w in lag_windows])
+
+        # 2. Categorical Features
+        if self.categorical_encoder.one_hot_categories:
+            names.extend([f"cat_onehot_{c}" for c in self.categorical_encoder.one_hot_categories])
+        if self.categorical_encoder.one_hot_categories: # Fuzzy has same categories
+            names.extend([f"cat_fuzzy_{c}" for c in self.categorical_encoder.one_hot_categories])
+        
+        cat_count_windows = [5, 10, 20, 50, 100]
+        if self.categorical_encoder.count_categories:
+            names.extend([f"cat_count_{c}_w{w}" for w in cat_count_windows for c in self.categorical_encoder.count_categories])
+
+        threshold_stat_names = ['above_ratio', 'below_ratio', 'mean_above', 'mean_below']
+        names.extend([f"cat_thresh_{name}_w{w}" for w in cat_count_windows for name in threshold_stat_names])
+
+        # 3. N-gram Features
+        ngram_windows = [10, 50, 100]
+        if self.ngram_encoder.most_common_ngrams:
+            ngram_names = [f"ngram_{'_'.join(gram)}" for gram in self.ngram_encoder.most_common_ngrams]
+            names.extend([f"{name}_w{w}" for w in ngram_windows for name in ngram_names])
+
+        # 4. Similarity Features
+        sim_names = ['sim_avg_next', 'sim_std_next', 'sim_avg_score', 'sim_neighbors', 'sim_prob_above']
+        names.extend(sim_names)
         
         self.feature_names = names
 
     def get_feature_names(self) -> List[str]:
         """Get the list of generated feature names."""
-        if not self.is_fitted:
-            raise RuntimeError("Must fit the extractor before getting feature names.")
+        if not self.is_fitted or not self.feature_names:
+            raise RuntimeError("Must fit the extractor and generate feature names before getting them.")
         return self.feature_names
 
     def _clean_features(self, features: np.ndarray) -> np.ndarray:

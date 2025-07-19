@@ -123,17 +123,19 @@ class EnhancedTFTPredictor(BasePredictor):
             crash_weight=kwargs.get('crash_weight', 5.0)
         )
 
-    def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
+    def predict_with_confidence(self, x_tensor: torch.Tensor) -> Tuple[float, float, float]:
         """
-        Make a prediction with confidence metrics - required for rolling training system.
-        This method is kept for compatibility with the RollingTrainer.
+        Make a prediction with confidence metrics using a pre-processed feature tensor.
         """
-        value, probability, confidence, _ = self.predict_with_attention(sequence)
+        value, probability, confidence, _ = self.predict_with_attention(x_tensor)
         return value, probability, confidence
 
-    def predict_with_attention(self, sequence: List[float]) -> Tuple[float, float, float, Optional[List[torch.Tensor]]]:
+    def predict_with_attention(self, x_tensor: torch.Tensor) -> Tuple[float, float, float, Optional[List[torch.Tensor]]]:
         """
-        Makes a prediction and returns attention weights.
+        Makes a prediction from a feature tensor and returns attention weights.
+        
+        Args:
+            x_tensor (torch.Tensor): The input tensor with shape (batch_size, seq_len, num_features).
         
         Returns:
             Tuple of (value, probability, confidence, attention_weights)
@@ -141,26 +143,23 @@ class EnhancedTFTPredictor(BasePredictor):
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
         
-        if len(sequence) != self.sequence_length:
-            raise ValueError(f"Sequence must have length {self.sequence_length}")
+        if x_tensor.dim() != 3 or x_tensor.shape[1] != self.sequence_length:
+            raise ValueError(f"Input tensor must have shape (batch, {self.sequence_length}, features)")
         
         try:
             self.model.eval()
             with torch.no_grad():
-                # This prediction logic needs a refactor for feature-rich inputs.
-                raise NotImplementedError("Prediction logic needs to be updated for feature-rich inputs.")
-                # x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
-                predictions = self.model(x, return_attention=True)
+                x_tensor = x_tensor.to(self.device)
+                predictions = self.model(x_tensor, return_attention=True)
                 
                 value = predictions['value'].squeeze().item()
                 probability = predictions['probability'].squeeze().item()
                 confidence = predictions['confidence'].squeeze().item()
-                attention_weights = predictions.get('attention_weights') # Use .get for safety
+                attention_weights = predictions.get('attention_weights')
                 
-                # Validate outputs
                 import numpy as np
                 if any(np.isnan([v]) for v in [value, probability, confidence]) or any(np.isinf([v]) for v in [value, probability, confidence]):
-                    raise ValueError("Model produced invalid predictions")
+                    raise ValueError("Model produced invalid predictions (NaN or Inf)")
                 
                 return float(value), float(probability), float(confidence), attention_weights
                 

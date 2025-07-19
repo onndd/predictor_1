@@ -155,7 +155,12 @@ class PipelineManager:
                     'best_threshold_accuracy': best_cycle['performance'].get('threshold_accuracy', 0),
                 })
                 best_model_path = best_cycle['model_path']
+                shap_plot_path = best_cycle.get('shap_plot_path')
+
                 mlflow.log_artifact(best_model_path)
+                if shap_plot_path and os.path.exists(shap_plot_path):
+                    mlflow.log_artifact(shap_plot_path, artifact_path="shap_plots")
+                
                 print(f"✅ Final training for {model_name} completed.")
         return best_model_path
 

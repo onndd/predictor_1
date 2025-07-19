@@ -16,7 +16,9 @@ from typing import Dict, List, Any, Optional, Tuple
 from src.training.model_registry import ModelRegistry
 from src.config.settings import PATHS
 from src.evaluation.metrics import calculate_threshold_metrics
-from src.data_processing.manager import DataManager # YENİ İMPORT
+from src.data_processing.manager import DataManager
+from src.explainability.shap_explainer import ShapExplainer
+from src.feature_engineering.unified_extractor import UnifiedFeatureExtractor
 
 # A factory to get model classes dynamically
 def get_model_predictor(model_type: str) -> Any:
@@ -269,16 +271,19 @@ class RollingTrainer:
                     print(f"  - ⚠️  Cycle {cycle + 1}: Model kaydetme başarısız, döngü atlanıyor.")
                     continue
 
+                # --- SHAP Explanation Generation ---
+                shap_plot_path = self._generate_shap_explanation(model, X_train, model_name)
+                
                 if metadata_path:
                     with open(metadata_path, 'r+') as f:
                         metadata = json.load(f)
-                        metadata.update({'performance': performance, 'cycle': cycle + 1})
+                        metadata.update({'performance': performance, 'cycle': cycle + 1, 'shap_plot_path': shap_plot_path})
                         f.seek(0)
                         json.dump(metadata, f, indent=4, cls=NumpyJSONEncoder)
                         f.truncate()
 
                 self.model_registry.register_model(model_name, self.model_type, self.config, performance, model_path, metadata_path)
-                cycle_results.append({'cycle': cycle + 1, 'performance': performance, 'model_path': model_path})
+                cycle_results.append({'cycle': cycle + 1, 'performance': performance, 'model_path': model_path, 'shap_plot_path': shap_plot_path})
                 print(f"  ✅ Cycle {cycle + 1} completed: MAE={performance['mae']:.4f}, F1={performance['f1']:.4f}, Recall={performance['recall']:.4f}, Threshold Acc={performance.get('threshold_accuracy', 0):.4f}")
                 
                 # Save checkpoint after a successful cycle
@@ -293,6 +298,53 @@ class RollingTrainer:
         self._cleanup_checkpoints()
         print(f"\n🎉 Rolling window training finished for {self.model_type}.")
         return cycle_results
+
+    def _generate_shap_explanation(self, model: Any, X_train: torch.Tensor, model_name: str) -> Optional[str]:
+        """Generates and saves a SHAP summary plot for a trained model."""
+        print("  - Generating SHAP explanations...")
+        try:
+            # SHAP needs a function that takes a numpy array and returns a numpy array
+            def predict_proba_wrapper(x_np):
+                if x_np.ndim == 1:
+                    x_np = x_np.reshape(1, -1)
+                if x_np.shape[1] != model.input_size:
+                     x_np = x_np.reshape(x_np.shape[0], model.sequence_length, model.input_size)
+
+                x_tensor = torch.tensor(x_np, dtype=torch.float32).to(self.device)
+                with torch.no_grad():
+                    outputs = model.model(x_tensor)
+                    # Assuming the model output dictionary has a 'probability' key
+                    probabilities = outputs['probability'].cpu().numpy()
+                # SHAP KernelExplainer expects (N, 2) for binary classification
+                return np.hstack([1 - probabilities, probabilities])
+
+            # Use a small sample of the training data as background
+            background_data = shap.sample(X_train.cpu().numpy().reshape(-1, X_train.shape[-1]), 100)
+            
+            # Get feature names
+            feature_names = self.data_manager.feature_extractor.get_feature_names()
+
+            explainer = shap.KernelExplainer(predict_proba_wrapper, background_data)
+            
+            # We need a sample of the data to explain, let's use the background data as well
+            shap_values = explainer.shap_values(background_data)
+
+            # Generate and save the plot
+            reports_dir = os.path.join(os.getcwd(), 'reports')
+            os.makedirs(reports_dir, exist_ok=True)
+            shap_plot_path = os.path.join(reports_dir, f"shap_summary_{model_name}.png")
+            
+            shap.summary_plot(shap_values[1], features=background_data, feature_names=feature_names, show=False)
+            plt.savefig(shap_plot_path, bbox_inches='tight')
+            plt.close()
+            
+            print(f"  - ✅ SHAP summary plot saved to: {shap_plot_path}")
+            return shap_plot_path
+
+        except Exception as e:
+            print(f"  - ❌ Failed to generate SHAP plot: {e}")
+            traceback.print_exc()
+            return None
 
     def _execute_incremental_training(self) -> List[Dict[str, Any]]:
         """Executes the incremental training loop with checkpointing."""
