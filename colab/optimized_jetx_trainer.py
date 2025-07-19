@@ -182,7 +182,7 @@ class OptimizedJetXTrainer:
             }
             
             print(f"✅ N-Beats training completed!")
-            print(f"📊 Performance: MAE={test_results['mae']:.4f}, Accuracy={test_results['accuracy']:.4f}")
+            print(f"📊 Performance: MAE={test_results['mae']:.4f}, Correct Play Advice={test_results.get('correct_play_advice_accuracy', 0):.2%}")
             print(f"💾 Model saved: {model_path}")
             
             return model, test_results
@@ -251,7 +251,7 @@ class OptimizedJetXTrainer:
             }
             
             print(f"✅ TFT training completed!")
-            print(f"📊 Performance: MAE={test_results['mae']:.4f}, Accuracy={test_results['accuracy']:.4f}")
+            print(f"📊 Performance: MAE={test_results['mae']:.4f}, Correct Play Advice={test_results.get('correct_play_advice_accuracy', 0):.2%}")
             print(f"💾 Model saved: {model_path}")
             
             return model, test_results
@@ -320,7 +320,7 @@ class OptimizedJetXTrainer:
             }
             
             print(f"✅ LSTM training completed!")
-            print(f"📊 Performance: MAE={test_results['mae']:.4f}, Accuracy={test_results['accuracy']:.4f}")
+            print(f"📊 Performance: MAE={test_results['mae']:.4f}, Correct Play Advice={test_results.get('correct_play_advice_accuracy', 0):.2%}")
             print(f"💾 Model saved: {model_path}")
             
             return model, test_results
@@ -335,55 +335,64 @@ class OptimizedJetXTrainer:
         """Test model performance"""
         try:
             if len(test_data) < sequence_length + 100:
-                return {'mae': 999, 'accuracy': 0, 'rmse': 999, 'crash_detection': 0}
-            
+                return {'mae': 999, 'accuracy': 0, 'rmse': 999, 'play_advice_ratio': 0}
+
             predictions = []
             actuals = []
-            
+
             # Test on sequences from test data
             for i in range(sequence_length, min(len(test_data), sequence_length + 500)):
                 raw_sequence = test_data[i-sequence_length:i]
                 raw_actual = test_data[i]
 
-                # Handle tuple/float data
                 sequence = [item[1] if isinstance(item, tuple) else item for item in raw_sequence]
                 actual = raw_actual[1] if isinstance(raw_actual, tuple) else raw_actual
                 
-                # Get prediction
-                pred_value, pred_prob, pred_conf = model.predict_with_confidence(sequence)
-                
-                predictions.append({
-                    'value': pred_value,
-                    'probability': pred_prob,
-                    'confidence': pred_conf
-                })
+                # Get prediction with advice using the new method
+                result = model.get_prediction_with_advice(sequence)
+                predictions.append(result)
                 actuals.append(actual)
-            
-            # Calculate metrics
-            pred_values = [p['value'] for p in predictions]
+
+            if not predictions:
+                return {'mae': 999, 'accuracy': 0, 'rmse': 999, 'play_advice_ratio': 0}
+
+            # --- Calculate Metrics ---
+            pred_values = [p.prediction for p in predictions]
             mae = np.mean(np.abs(np.array(pred_values) - np.array(actuals)))
             rmse = np.sqrt(np.mean((np.array(pred_values) - np.array(actuals))**2))
+
+            # Standard accuracy (prediction >= 1.5 vs actual >= 1.5)
+            pred_above_1_5 = [p.prediction >= 1.5 for p in predictions]
+            actual_above_1_5 = [a >= 1.5 for a in actuals]
+            accuracy = np.mean([p == a for p, a in zip(pred_above_1_5, actual_above_1_5)])
+
+            # --- New Advice-Based Metrics ---
+            play_advices = [p.advice == "Play" for p in predictions]
+            play_advice_ratio = np.mean(play_advices) if play_advices else 0
+
+            # Accuracy of "Play" advice: Of all "Play" advices, how many were correct (actual >= 1.5)
+            correct_play_predictions = [
+                actual_above_1_5[i] for i, advised_play in enumerate(play_advices) if advised_play
+            ]
+            correct_play_advice_accuracy = np.mean(correct_play_predictions) if correct_play_predictions else 0
             
-            # Classification metrics
-            pred_above = [p['probability'] > 0.5 for p in predictions]
-            actual_above = [a >= 1.5 for a in actuals]
-            accuracy = np.mean([p == a for p, a in zip(pred_above, actual_above)])
-            
-            # Crash detection
-            actual_crashes = [a < 1.5 for a in actuals]
-            pred_crashes = [p['probability'] < 0.5 for p in predictions]
-            crash_detection = np.mean([p == a for p, a in zip(pred_crashes, actual_crashes)])
-            
+            # Overall advice accuracy is the average confidence
+            overall_advice_accuracy = np.mean([p.advice_accuracy for p in predictions])
+
             return {
                 'mae': float(mae),
                 'rmse': float(rmse),
                 'accuracy': float(accuracy),
-                'crash_detection': float(crash_detection)
+                'play_advice_ratio': float(play_advice_ratio),
+                'correct_play_advice_accuracy': float(correct_play_advice_accuracy),
+                'overall_advice_accuracy': float(overall_advice_accuracy)
             }
-            
+
         except Exception as e:
             print(f"❌ Model test error: {e}")
-            return {'mae': 999, 'accuracy': 0, 'rmse': 999, 'crash_detection': 0}
+            import traceback
+            traceback.print_exc()
+            return {'mae': 999, 'accuracy': 0, 'rmse': 999, 'play_advice_ratio': 0}
     
     def train_all_models(self):
         """Train all models with optimized parameters"""
@@ -460,8 +469,10 @@ class OptimizedJetXTrainer:
             print(f"\n📊 {model_name} Results:")
             print(f"   MAE: {mae:.4f}")
             print(f"   RMSE: {result['performance']['rmse']:.4f}")
-            print(f"   Accuracy: {accuracy:.4f}")
-            print(f"   Crash Detection: {result['performance']['crash_detection']:.4f}")
+            print(f"   Accuracy (Pred >= 1.5): {accuracy:.4f}")
+            print(f"   Play Advice Ratio: {result['performance'].get('play_advice_ratio', 0):.2%}")
+            print(f"   Correct 'Play' Advice Acc: {result['performance'].get('correct_play_advice_accuracy', 0):.2%}")
+            print(f"   Overall Advice Confidence: {result['performance'].get('overall_advice_accuracy', 0):.2%}")
             print(f"   Model: {result['model_path']}")
             
             if mae < best_mae:

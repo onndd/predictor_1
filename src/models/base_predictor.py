@@ -8,8 +8,18 @@ import torch
 import torch.nn as nn
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, NamedTuple
 from tqdm import tqdm
+
+class PredictionResult(NamedTuple):
+    """
+    Represents the result of a prediction, including advice.
+    """
+    prediction: float
+    confidence: float
+    uncertainty: float
+    advice: str
+    advice_accuracy: float
 
 class BasePredictor(ABC):
     """
@@ -143,6 +153,37 @@ class BasePredictor(ABC):
         Make a prediction with confidence metrics. Must be implemented by subclasses.
         """
         pass
+
+    def get_prediction_with_advice(self, sequence: List[float], confidence_threshold: float = 0.6) -> PredictionResult:
+        """
+        Generates a prediction and provides 'Play' or 'Do Not Play' advice.
+
+        Args:
+            sequence (List[float]): The input sequence for prediction.
+            confidence_threshold (float): The minimum confidence required to advise 'Play'.
+
+        Returns:
+            PredictionResult: An object containing the prediction, confidence, uncertainty,
+                              advice, and the accuracy of the advice.
+        """
+        prediction, confidence, uncertainty = self.predict_with_confidence(sequence)
+
+        # Determine advice based on prediction value and confidence
+        if prediction < 1.5 or confidence < confidence_threshold:
+            advice = "Do Not Play"
+        else:
+            advice = "Play"
+
+        # Advice accuracy is simply the confidence score
+        advice_accuracy = confidence
+
+        return PredictionResult(
+            prediction=prediction,
+            confidence=confidence,
+            uncertainty=uncertainty,
+            advice=advice,
+            advice_accuracy=advice_accuracy
+        )
 
     def save_model(self, filepath: str):
         """Save the trained model and its state."""
