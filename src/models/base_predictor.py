@@ -10,6 +10,41 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Any, NamedTuple
 from tqdm import tqdm
+import torch.nn.functional as F
+
+class AsymmetricAdviceLoss(nn.Module):
+    """
+    Custom loss function that heavily penalizes incorrect 'Play' advice.
+    An incorrect 'Play' is when the model predicts >= threshold, but the actual is < threshold.
+    """
+    def __init__(self, threshold: float = 1.5, penalty_factor: float = 5.0):
+        super().__init__()
+        self.threshold = threshold
+        self.penalty_factor = penalty_factor
+        self.mse_loss = nn.MSELoss(reduction='none') # We want per-element loss to apply weights
+
+    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Calculates the asymmetric loss.
+        """
+        if targets.dim() == 1:
+            targets = targets.unsqueeze(1)
+        
+        base_loss = self.mse_loss(predictions, targets)
+
+        # Condition for incorrect 'Play' advice: prediction >= threshold AND target < threshold
+        incorrect_play_condition = (predictions >= self.threshold) & (targets < self.threshold)
+        
+        # Create a penalty tensor, default is 1.0
+        penalty = torch.ones_like(base_loss)
+        
+        # Apply penalty factor where the condition is met
+        penalty[incorrect_play_condition] = self.penalty_factor
+        
+        # Apply the weights to the base loss
+        weighted_loss = base_loss * penalty
+        
+        return weighted_loss.mean()
 
 class PredictionResult(NamedTuple):
     """
@@ -59,10 +94,24 @@ class BasePredictor(ABC):
             eta_min=1e-6
         )
 
-    @abstractmethod
     def _create_loss_function(self, **kwargs) -> nn.Module:
-        """Create the loss function. Must be implemented by subclasses."""
-        pass
+        """
+        Create the loss function.
+        Uses AsymmetricAdviceLoss if relevant parameters are provided,
+        otherwise defaults to a standard MSE loss for backward compatibility
+        or for models that define their own loss.
+        """
+        loss_threshold = kwargs.get('loss_threshold')
+        loss_penalty_factor = kwargs.get('loss_penalty_factor')
+
+        if loss_threshold is not None and loss_penalty_factor is not None:
+            print(f"✅ Using AsymmetricAdviceLoss with threshold={loss_threshold} and penalty={loss_penalty_factor}")
+            return AsymmetricAdviceLoss(threshold=loss_threshold, penalty_factor=loss_penalty_factor)
+        
+        # Fallback for models that don't use the advice-driven loss.
+        # Subclasses can still override this method.
+        print("⚠️ Using default nn.MSELoss. For advice-driven training, provide loss_threshold and loss_penalty_factor in config.")
+        return nn.MSELoss()
 
     def train(self, X: torch.Tensor, y: torch.Tensor, epochs: int = 100, batch_size: int = 32,
               validation_split: float = 0.2, verbose: bool = True, tqdm_desc: str = "Training") -> dict:

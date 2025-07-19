@@ -68,7 +68,8 @@ class OptimizedJetXTrainer:
                 'epochs': 100,
                 'batch_size': 32,
                 'threshold': 1.5,
-                'crash_weight': 3.0,
+                'loss_threshold': 1.5,
+                'loss_penalty_factor': 5.0,
                 'validation_split': 0.2
             },
             'TFT': {
@@ -80,6 +81,8 @@ class OptimizedJetXTrainer:
                 'epochs': 80,
                 'batch_size': 24,
                 'threshold': 1.5,
+                'loss_threshold': 1.5,
+                'loss_penalty_factor': 5.0,
                 'validation_split': 0.2
             },
             'LSTM': {
@@ -90,6 +93,8 @@ class OptimizedJetXTrainer:
                 'epochs': 80,
                 'batch_size': 32,
                 'threshold': 1.5,
+                'loss_threshold': 1.5,
+                'loss_penalty_factor': 5.0,
                 'validation_split': 0.2
             }
         }
@@ -152,7 +157,8 @@ class OptimizedJetXTrainer:
                 num_blocks=config['num_blocks'],
                 learning_rate=config['learning_rate'],
                 threshold=config['threshold'],
-                crash_weight=config['crash_weight']
+                loss_threshold=config.get('loss_threshold'),
+                loss_penalty_factor=config.get('loss_penalty_factor')
             )
             
             print("🔧 Training started...")
@@ -221,7 +227,9 @@ class OptimizedJetXTrainer:
                 num_heads=config['num_heads'],
                 num_layers=config['num_layers'],
                 learning_rate=config['learning_rate'],
-                threshold=config['threshold']
+                threshold=config['threshold'],
+                loss_threshold=config.get('loss_threshold'),
+                loss_penalty_factor=config.get('loss_penalty_factor')
             )
             
             print("🔧 Training started...")
@@ -288,6 +296,8 @@ class OptimizedJetXTrainer:
                 seq_length=config['sequence_length'],
                 n_features=1,
                 threshold=config['threshold'],
+                loss_threshold=config.get('loss_threshold'),
+                loss_penalty_factor=config.get('loss_penalty_factor'),
                 hidden_size=config['hidden_size'],
                 num_layers=config['num_layers'],
                 learning_rate=config['learning_rate']

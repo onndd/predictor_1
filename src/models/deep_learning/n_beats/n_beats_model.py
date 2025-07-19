@@ -673,13 +673,6 @@ class NBeatsPredictor(BasePredictor):
             threshold=self.threshold
         )
 
-    def _create_loss_function(self, **kwargs) -> nn.Module:
-        """Create the JetX-specific threshold loss."""
-        return JetXThresholdLoss(
-            threshold=kwargs.get('threshold', 1.5),
-            crash_weight=kwargs.get('crash_weight', 5.0)
-        )
-
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
