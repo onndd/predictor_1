@@ -13,19 +13,28 @@ class UnifiedFeatureExtractor:
     This class combines features from statistical, categorical, and pattern-based extractors.
     """
     
-    def __init__(self, 
-                 sequence_length: int = 200,
+    def __init__(self,
+                 feature_windows: List[int],
+                 lag_windows: List[int],
+                 lags: List[int],
+                 model_sequence_length: int,
                  threshold: float = 1.5,
                  top_n_ngrams: int = 20):
         """
         Initialize the unified feature extractor.
         
         Args:
-            sequence_length: Standard sequence length for all features.
+            feature_windows: List of window sizes for statistical features.
+            lag_windows: List of window sizes for rolling features.
+            lags: List of lag values for lag features.
+            model_sequence_length: The sequence length the model will receive.
             threshold: Decision threshold for binary features.
             top_n_ngrams: Number of top n-grams to consider for pattern features.
         """
-        self.sequence_length = sequence_length
+        self.feature_windows = feature_windows
+        self.lag_windows = lag_windows
+        self.lags = lags
+        self.model_sequence_length = model_sequence_length
         self.threshold = threshold
         
         # Initialize individual feature encoders
@@ -46,15 +55,15 @@ class UnifiedFeatureExtractor:
         Returns:
             self: Fitted extractor.
         """
-        if len(values) < self.sequence_length:
-            raise ValueError(f"Need at least {self.sequence_length} values for fitting.")
+        if len(values) < self.model_sequence_length:
+            raise ValueError(f"Need at least {self.model_sequence_length} values for fitting.")
         
         print("Fitting UnifiedFeatureExtractor...")
         
         # Fit categorical and pattern encoders
         self.categorical_encoder.fit(values)
         self.ngram_encoder.fit(values)
-        self.similarity_encoder.fit(values, self.sequence_length)
+        self.similarity_encoder.fit(values, self.model_sequence_length)
         
         self.is_fitted = True
         
@@ -78,7 +87,12 @@ class UnifiedFeatureExtractor:
             raise RuntimeError("Feature extractor must be fitted before transform.")
         
         # 1. Statistical Features
-        statistical_f = extract_statistical_features(values)
+        statistical_f = extract_statistical_features(
+            values,
+            feature_windows=self.feature_windows,
+            lag_windows=self.lag_windows,
+            lags=self.lags
+        )
         
         # 2. Categorical Features
         categorical_f = self.categorical_encoder.transform(values)
@@ -87,7 +101,7 @@ class UnifiedFeatureExtractor:
         ngram_f = self.ngram_encoder.transform(values)
         
         # 4. Similarity Features
-        similarity_f = self.similarity_encoder.transform(values, self.sequence_length)
+        similarity_f = self.similarity_encoder.transform(values, self.model_sequence_length)
 
         # Ensure all feature sets have the same number of samples
         min_len = min(len(statistical_f), len(categorical_f), len(ngram_f), len(similarity_f))

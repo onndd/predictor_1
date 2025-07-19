@@ -231,7 +231,10 @@ class RollingTrainer:
             train_data = [item for sublist in self.chunks[:cycle + 1] for item in sublist]
             test_data = self.chunks[cycle + 1]
             
-            sequence_length = self.config.get('sequence_length', 200)
+            # sequence_length'i artık model config'den değil, genel training config'den almalıyız.
+            # DataManager bunu zaten bildiği için, doğrudan onun içindeki değeri kullanmak en doğrusu.
+            sequence_length = self.data_manager.feature_extractor.model_sequence_length
+            print(f"DEBUG: RollingTrainer is using sequence_length: {sequence_length}")
             print(f"  - Training size: {len(train_data)}, Test size: {len(test_data)}, Required sequence_length: {sequence_length}")
 
             if len(train_data) <= sequence_length:
@@ -284,8 +287,14 @@ class RollingTrainer:
 
                 self.model_registry.register_model(model_name, self.model_type, self.config, performance, model_path, metadata_path)
                 cycle_results.append({'cycle': cycle + 1, 'performance': performance, 'model_path': model_path, 'shap_plot_path': shap_plot_path})
-                print(f"  ✅ Cycle {cycle + 1} completed: MAE={performance['mae']:.4f}, F1={performance['f1']:.4f}, Recall={performance['recall']:.4f}, Threshold Acc={performance.get('threshold_accuracy', 0):.4f}")
                 
+                print("\n  📊 Test Sonuçları:")
+                for key, value in performance.items():
+                    # Metrik isimlerini daha okunabilir hale getir
+                    metric_name = key.replace('_', ' ').title()
+                    print(f"    - {metric_name}: {value:.4f}")
+                print(f"  ✅ Cycle {cycle + 1} tamamlandı. Model: {model_name}\n")
+
                 # Save checkpoint after a successful cycle
                 self._save_checkpoint(model, model.optimizer, cycle)
 

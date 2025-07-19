@@ -15,12 +15,16 @@ paths:
 # Genel Eğitim ve HPO Ayarları
 # -------------------------------------------------------------------
 training:
-  hpo_trials: 15 # Her model için denenecek HPO kombinasyon sayısı
+  hpo_trials: 30 # Her model için denenecek HPO kombinasyon sayısı (Daha agresif)
   default_epochs: 75
   batch_size: 32
   validation_split: 0.15
   min_data_points: 500
   threshold: 1.5
+  model_sequence_length: 100 # Modelin girdi olarak alacağı nihai dizi uzunluğu
+  feature_windows: [50, 75, 100, 200, 500] # Özellik mühendisliği için pencere boyutları
+  lag_windows: [5, 10, 20, 50] # Yuvarlanan özellikler için pencere boyutları
+  lags: [1, 2, 3, 5, 10] # Gecikme özellikleri için gecikme değerleri
 
 # ===================================================================
 # Model Yapılandırmaları (Merkezileştirilmiş)
@@ -28,7 +32,6 @@ training:
 models:
   N-Beats:
     default_params:
-      sequence_length: 300
       hidden_size: 512
       num_stacks: 4
       num_blocks: 4
@@ -41,13 +44,12 @@ models:
         verbose: true
     hpo_space:
       learning_rate: { type: 'float', low: 0.00001, high: 0.01, log: false }
-      hidden_size: { type: 'categorical', choices: [128, 256, 512] }
-      num_stacks: { type: 'int', low: 2, high: 5 }
-      num_blocks: { type: 'int', low: 2, high: 5 }
+      hidden_size: { type: 'categorical', choices: [128, 256, 512, 1024] }
+      num_stacks: { type: 'int', low: 2, high: 6 }
+      num_blocks: { type: 'int', low: 2, high: 6 }
 
   TFT:
     default_params:
-      sequence_length: 250
       hidden_size: 256
       num_heads: 8
       num_layers: 3
@@ -60,13 +62,12 @@ models:
         verbose: true
     hpo_space:
       learning_rate: { type: 'float', low: 0.00001, high: 0.01, log: false }
-      hidden_size: { type: 'categorical', choices: [64, 128, 256] }
-      num_heads: { type: 'categorical', choices: [4, 8] }
-      num_layers: { type: 'int', low: 1, high: 3 }
+      hidden_size: { type: 'categorical', choices: [64, 128, 256, 512] }
+      num_heads: { type: 'categorical', choices: [4, 8, 16] }
+      num_layers: { type: 'int', low: 1, high: 4 }
 
   LSTM:
     default_params:
-      sequence_length: 200
       hidden_size: 256 # lstm_units'e haritalanır
       num_layers: 3
       learning_rate: 0.0005
@@ -78,8 +79,8 @@ models:
         verbose: true
     hpo_space:
       learning_rate: { type: 'float', low: 0.00001, high: 0.01, log: false }
-      hidden_size: { type: 'categorical', choices: [128, 256, 512] }
-      num_layers: { type: 'int', low: 1, high: 4 }
+      hidden_size: { type: 'categorical', choices: [128, 256, 512, 1024] }
+      num_layers: { type: 'int', low: 1, high: 5 }
 
 # ===================================================================
 # Diğer Ayarlar

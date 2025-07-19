@@ -4,7 +4,7 @@ import numpy as np
 from scipy import stats
 import pandas as pd
 
-def calculate_basic_stats(values: pd.Series, window_sizes=[10, 20, 50, 100, 200]):
+def calculate_basic_stats(values: pd.Series, window_sizes: List[int]):
     """
     Temel istatistiksel özellikleri (ortalama ve std olmadan) hesaplar
     """
@@ -83,7 +83,7 @@ def calculate_threshold_runs(values: pd.Series, threshold=1.5, max_run_length=10
         features[i, 3] = max_below_run
     return features
 
-def calculate_trend_features(values: pd.Series, window_sizes=[10, 20, 50, 100]):
+def calculate_trend_features(values: pd.Series, window_sizes: List[int]):
     """
     Trend ve mevsimsellik özellikleri hesaplar. RuntimeWarning'ları önlemek için kontroller eklendi.
     """
@@ -122,7 +122,7 @@ def calculate_trend_features(values: pd.Series, window_sizes=[10, 20, 50, 100]):
             feature_idx += 3
     return features
 
-def calculate_advanced_stats(values: pd.Series, window_sizes=[10, 20, 50, 100]):
+def calculate_advanced_stats(values: pd.Series, window_sizes: List[int]):
     """
     Volatilite, momentum ve kayan yüzdelikler gibi gelişmiş istatistiksel özellikleri hesaplar.
     """
@@ -153,7 +153,7 @@ def calculate_advanced_stats(values: pd.Series, window_sizes=[10, 20, 50, 100]):
             feature_idx += 4
     return features
 
-def calculate_lag_and_rolling_features(values, lags=[1, 2, 3, 5, 10], windows=[5, 10, 20, 50]):
+def calculate_lag_and_rolling_features(values, lags: List[int], windows: List[int]):
     """
     Gecikme (lag) ve yuvarlanan (rolling) istatistik özelliklerini hesaplar.
     """
@@ -173,7 +173,7 @@ def calculate_lag_and_rolling_features(values, lags=[1, 2, 3, 5, 10], windows=[5
     # Drop the original 'value' column
     return df.drop('value', axis=1).values
 
-def extract_statistical_features(values):
+def extract_statistical_features(values: List[float], feature_windows: List[int], lag_windows: List[int], lags: List[int]):
     """
     Tüm istatistiksel özellikleri (temel, trend, gelişmiş, gecikme ve yuvarlanan) çıkarır.
     """
@@ -182,12 +182,12 @@ def extract_statistical_features(values):
     # Convert to pandas Series for easier manipulation
     series_values = pd.Series(values)
     
-    # Calculate all feature sets
-    basic_stats = calculate_basic_stats(series_values)
-    threshold_runs = calculate_threshold_runs(series_values)
-    trend_features = calculate_trend_features(series_values)
-    advanced_stats = calculate_advanced_stats(series_values)
-    lag_rolling_features = calculate_lag_and_rolling_features(values) # This function uses pandas
+    # Calculate all feature sets using the provided window sizes
+    basic_stats = calculate_basic_stats(series_values, window_sizes=feature_windows)
+    threshold_runs = calculate_threshold_runs(series_values) # This one doesn't depend on windows
+    trend_features = calculate_trend_features(series_values, window_sizes=feature_windows)
+    advanced_stats = calculate_advanced_stats(series_values, window_sizes=feature_windows)
+    lag_rolling_features = calculate_lag_and_rolling_features(values, lags=lags, windows=lag_windows)
     
     # Ensure all numpy arrays have the same number of rows
     min_len = min(len(basic_stats), len(threshold_runs), len(trend_features), len(advanced_stats), len(lag_rolling_features))

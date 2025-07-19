@@ -24,8 +24,13 @@ class DataManager:
         self.db_path = db_path
         self.use_cache = use_cache
         self.cache_path = self._get_cache_path()
+        training_config = CONFIG.get('training', {})
         self.feature_extractor = UnifiedFeatureExtractor(
-            sequence_length=CONFIG.get('training', {}).get('sequence_length', 200)
+            feature_windows=training_config.get('feature_windows', [50, 75, 100, 200, 500]),
+            lag_windows=training_config.get('lag_windows', [5, 10, 20, 50]),
+            lags=training_config.get('lags', [1, 2, 3, 5, 10]),
+            model_sequence_length=training_config.get('model_sequence_length', 100),
+            threshold=training_config.get('threshold', 1.5)
         )
         print(f"DataManager initialized with DB: {self.db_path}")
 

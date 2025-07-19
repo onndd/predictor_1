@@ -651,25 +651,47 @@ from src.models.base_predictor import BasePredictor
 class NBeatsPredictor(BasePredictor):
     """
     N-BEATS based predictor for JetX time series, inheriting from BasePredictor.
+    This version adds a feature projection layer to handle multivariate inputs.
     """
-    def __init__(self, sequence_length: int, input_size: int, learning_rate: float, device: str = 'cpu', **kwargs):
+    def __init__(self, model_sequence_length: int, input_size: int, learning_rate: float, device: str = 'cpu', **kwargs):
         # Store hyperparameters before calling super().__init__ because _build_model needs them
         self.hidden_size = kwargs.get('hidden_size', 512)
         self.num_stacks = kwargs.get('num_stacks', 4)
         self.num_blocks = kwargs.get('num_blocks', 4)
         self.threshold = kwargs.get('threshold', 1.5)
+        self.crash_weight = kwargs.get('crash_weight', 2.0)
         
-        # Now call super().__init__ which will call _build_model
-        super().__init__(sequence_length=sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
+        # The sequence length the N-BEATS model itself will see
+        self.model_sequence_length = model_sequence_length
+
+        # This layer projects the rich feature vector at each time step to a single value,
+        # creating a synthetic univariate time series that N-BEATS can process.
+        self.feature_to_univariate = nn.Linear(input_size, 1).to(device)
+
+        # The `sequence_length` for BasePredictor is the length of the sequence fed to the model.
+        # The `input_size` for BasePredictor is the number of raw features before projection.
+        super().__init__(sequence_length=self.model_sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
+
+    def _create_loss_function(self, **kwargs) -> nn.Module:
+        """
+        Override the base loss function to use the JetX-specific loss,
+        which is designed to handle the dictionary output of the model.
+        """
+        print("✅ Using JetXThresholdLoss for N-Beats.")
+        return JetXThresholdLoss(
+            threshold=self.threshold,
+            crash_weight=self.crash_weight
+        )
 
     def _build_model(self, input_size: int, **kwargs) -> nn.Module:
         """
         Build the JetX-optimized N-Beats model.
-        N-BEATS is univariate, so its internal input_size must be the sequence_length,
-        not the number of features from the pipeline.
+        The model's internal input_size is `model_sequence_length`.
         """
+        # The input_size passed here is the number of raw features, which we ignore
+        # in favor of the model_sequence_length for the N-BEATS architecture.
         return JetXNBeatsModel(
-            input_size=self.sequence_length,  # FIX: Use sequence_length for the model's internal architecture
+            input_size=self.model_sequence_length,
             forecast_size=1,
             num_stacks=self.num_stacks,
             num_blocks=self.num_blocks,
@@ -706,18 +728,21 @@ class NBeatsPredictor(BasePredictor):
 
     def train(self, X: torch.Tensor, y: torch.Tensor, **kwargs):
         """
-        Override the base train method to handle the specific input requirements of N-BEATS.
-        N-BEATS is a univariate model, so it only uses the primary time series, not the extra features.
+        Override the base train method to project the rich multivariate features
+        into a synthetic univariate time series that N-BEATS can process.
         """
-        # N-Beats expects a 2D tensor (batch_size, sequence_length).
-        # The input X from the pipeline is a 3D tensor (batch_size, sequence_length, num_features).
-        # We select only the first feature, which is the raw value.
-        if X.dim() == 3:
-            print("  N-BEATS Trainer: Input is 3D, selecting first feature for univariate processing.")
-            X = X[:, :, 0]
+        if X.dim() != 3:
+            raise ValueError(f"NBeatsPredictor expects a 3D tensor, but got {X.dim()}D.")
+
+        # Project the feature vector at each time step to a single value.
+        # Input shape: (batch_size, sequence_length, num_features)
+        # Output shape: (batch_size, sequence_length, 1) -> squeeze -> (batch_size, sequence_length)
+        X_projected = self.feature_to_univariate(X).squeeze(-1)
+        
+        print(f"  N-BEATS Trainer: Projected rich features from {X.shape} to synthetic series of shape {X_projected.shape}.")
 
         # Call the base training loop with the correctly shaped 2D data
-        return super().train(X, y, **kwargs)
+        return super().train(X_projected, y, **kwargs)
     
     def predict_next_value(self, sequence: List[float]) -> float:
         """
