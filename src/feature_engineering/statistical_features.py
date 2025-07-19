@@ -3,6 +3,7 @@
 import numpy as np
 from scipy import stats
 import pandas as pd
+from typing import List
 
 def calculate_basic_stats(values: pd.Series, window_sizes: List[int]):
     """
