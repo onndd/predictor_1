@@ -35,23 +35,24 @@ class PipelineManager:
         self.model_registry = ModelRegistry()
         self.results: Dict[str, List[Dict[str, Any]]] = {}
 
-    def run_pipeline(self):
+    def run_pipeline(self) -> List[str]:
         """
-        Executes the full training pipeline.
+        Executes the full training pipeline and returns paths of trained models.
         """
         print("🚀 PIPELINE MANAGER: Starting end-to-end training pipeline.")
         print("="*60)
+        trained_model_paths = []
 
         # 1. Load Data
         all_data = self.data_manager.get_all_data()
         if not all_data or len(all_data) < CONFIG.get('training', {}).get('min_data_points', 500):
             print("❌ Pipeline stopped: Not enough data for training.")
-            return
+            return trained_model_paths
 
         rolling_chunks = self.data_manager.get_rolling_chunks(all_data, chunk_size=1000)
         if not rolling_chunks:
             print("❌ Pipeline stopped: Not enough data to create rolling chunks.")
-            return
+            return trained_model_paths
 
         # 2. Setup MLflow
         self._setup_mlflow()
@@ -60,13 +61,16 @@ class PipelineManager:
             print(f"🚀 MLflow Run Started: {run.info.run_id}")
             
             for model_name in self.models_to_train:
-                self._process_model(model_name, rolling_chunks)
+                model_path = self._process_model(model_name, rolling_chunks)
+                if model_path:
+                    trained_model_paths.append(model_path)
 
         # 4. Final Report
         self._finalize_and_report()
+        return trained_model_paths
 
-    def _process_model(self, model_name: str, chunks: List[List[float]]):
-        """Processes a single model through HPO and final training."""
+    def _process_model(self, model_name: str, chunks: List[List[float]]) -> Optional[str]:
+        """Processes a single model and returns the path of the best trained artifact."""
         print(f"\n\n--- Processing Model: {model_name} ---")
         
         base_profile = get_model_default_params(model_name)
@@ -75,7 +79,7 @@ class PipelineManager:
         optimized_profile = self._run_hpo(model_name, base_profile, chunks)
         
         # Final Training
-        self._run_final_training(model_name, optimized_profile, chunks)
+        return self._run_final_training(model_name, optimized_profile, chunks)
 
     def _run_hpo(self, model_name: str, profile: Dict, chunks: List) -> Dict:
         """Runs HPO for a given model."""
@@ -130,9 +134,10 @@ class PipelineManager:
             print(f"❌ HPO trial failed for {model_name}: {e}")
             return float('inf')
 
-    def _run_final_training(self, model_name: str, config: Dict, chunks: List):
-        """Runs the final training with the best parameters."""
+    def _run_final_training(self, model_name: str, config: Dict, chunks: List) -> Optional[str]:
+        """Runs final training and returns the path of the best model artifact."""
         print(f"🎓 Starting final training for {model_name}...")
+        best_model_path = None
         with mlflow.start_run(run_name=f"Final_Training_{model_name}", nested=True):
             mlflow.log_params(config)
             mlflow.set_tag("model_type", model_name)
@@ -147,8 +152,10 @@ class PipelineManager:
                     'best_mae': best_cycle['performance']['mae'],
                     'best_threshold_accuracy': best_cycle['performance'].get('threshold_accuracy', 0),
                 })
-                mlflow.log_artifact(best_cycle['model_path'])
+                best_model_path = best_cycle['model_path']
+                mlflow.log_artifact(best_model_path)
                 print(f"✅ Final training for {model_name} completed.")
+        return best_model_path
 
     def _setup_mlflow(self):
         """Sets up the local MLflow tracking URI and experiment."""
