@@ -652,7 +652,7 @@ class NBeatsPredictor(BasePredictor):
     """
     N-BEATS based predictor for JetX time series, inheriting from BasePredictor.
     """
-    def __init__(self, sequence_length: int, learning_rate: float, device: str = 'cpu', **kwargs):
+    def __init__(self, sequence_length: int, input_size: int, learning_rate: float, device: str = 'cpu', **kwargs):
         # Store hyperparameters before calling super().__init__ because _build_model needs them
         self.hidden_size = kwargs.get('hidden_size', 512)
         self.num_stacks = kwargs.get('num_stacks', 4)
@@ -660,12 +660,12 @@ class NBeatsPredictor(BasePredictor):
         self.threshold = kwargs.get('threshold', 1.5)
         
         # Now call super().__init__ which will call _build_model
-        super().__init__(sequence_length=sequence_length, learning_rate=learning_rate, device=device, **kwargs)
+        super().__init__(sequence_length=sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
 
-    def _build_model(self, **kwargs) -> nn.Module:
+    def _build_model(self, input_size: int, **kwargs) -> nn.Module:
         """Build the JetX-optimized N-Beats model."""
         return JetXNBeatsModel(
-            input_size=self.sequence_length,
+            input_size=input_size, # Use the passed input_size
             forecast_size=1,
             num_stacks=self.num_stacks,
             num_blocks=self.num_blocks,
@@ -711,8 +711,9 @@ class NBeatsPredictor(BasePredictor):
         # Override train to handle input shape difference
         
         # N-Beats expects (batch_size, sequence_length), so squeeze the last dimension
-        if X.dim() == 3 and X.shape[2] == 1:
-            X = X.squeeze(-1)
+        # This override is no longer needed as the base model expects multi-feature input
+        # if X.dim() == 3 and X.shape[2] == 1:
+        #     X = X.squeeze(-1)
 
         # Call the base training loop with the correctly shaped data
         return super().train(X, y, **kwargs)
@@ -759,6 +760,7 @@ class NBeatsPredictor(BasePredictor):
             'is_trained': self.is_trained,
             'model_config': {
                 'sequence_length': self.sequence_length,
+                'input_size': self.input_size,
                 'hidden_size': self.hidden_size,
                 'num_stacks': self.num_stacks,
                 'num_blocks': self.num_blocks

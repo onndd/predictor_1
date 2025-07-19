@@ -126,64 +126,54 @@ class RollingTrainer:
             os.remove(checkpoint_path)
             print(f"🧹 Cleaned up checkpoint file: {checkpoint_path}")
 
-    def _get_model_instance(self) -> Any:
+    def _get_model_instance(self, input_size: int) -> Any:
         """Creates an instance of the specified model type with its config."""
-        print(f"🔧 Instantiating model: {self.model_type}")
+        print(f"🔧 Instantiating model: {self.model_type} with input_size: {input_size}")
         model_class = get_model_predictor(self.model_type)
         
+        # Add input_size to the config for the model constructor
+        model_config = self.config.copy()
+        model_config['input_size'] = input_size
+        
+        # Filter config to only pass parameters expected by the model's __init__
         import inspect
         sig = inspect.signature(model_class.__init__)
-        model_keys = {p.name for p in sig.parameters.values() if p.kind == p.POSITIONAL_OR_KEYWORD}
+        allowed_keys = {p.name for p in sig.parameters.values()}
         
-        param_mapping = {'lstm_units': 'hidden_size', 'seq_length': 'sequence_length'}
+        filtered_config = {k: v for k, v in model_config.items() if k in allowed_keys}
         
-        filtered_config = {}
-        for key, value in self.config.items():
-            mapped_key = param_mapping.get(key, key)
-            if mapped_key in model_keys:
-                filtered_config[mapped_key] = value
-        
-        if self.model_type == 'LSTM' and 'n_features' not in filtered_config:
-            filtered_config['n_features'] = 1
-
-        if 'device' in inspect.signature(model_class.__init__).parameters:
+        # Ensure device is passed if expected
+        if 'device' in allowed_keys:
             filtered_config['device'] = self.device
-
+            
         return model_class(**filtered_config)
 
-    def _test_model(self, model: Any, test_data: List[float]) -> Optional[Dict[str, Any]]:
-        """Generic model testing function."""
+    def _test_model(self, model: Any, X_test: torch.Tensor, y_test: torch.Tensor) -> Optional[Dict[str, Any]]:
+        """Generic model testing function using pre-featured data."""
         try:
-            sequence_length = self.config['sequence_length']
-            if len(test_data) < sequence_length + 1:
+            if len(X_test) == 0:
                 print("⚠️ Not enough test data for a full evaluation.")
                 return None
 
-            predictions, actuals = [], []
-            for i in range(sequence_length, len(test_data)):
-                raw_sequence = test_data[i-sequence_length:i]
-                raw_actual = test_data[i]
-                
-                sequence = [float(item[1]) if isinstance(item, (tuple, list)) else float(item) for item in raw_sequence]
-                actual = float(raw_actual[1]) if isinstance(raw_actual, (tuple, list)) else float(raw_actual)
-                
-                pred_value, _, _ = model.predict_with_confidence(sequence)
-                predictions.append(pred_value)
-                actuals.append(actual)
+            model.model.eval()
+            with torch.no_grad():
+                # Get model predictions for the entire test set
+                outputs = model.model(X_test.to(self.device))
+                predictions = outputs['value'].squeeze().cpu().numpy()
+                actuals = y_test.cpu().numpy()
 
-            if not predictions: return None
+            if predictions.ndim == 0:
+                predictions = np.expand_dims(predictions, 0)
 
-            mae = np.mean(np.abs(np.array(predictions) - np.array(actuals)))
-            rmse = np.sqrt(np.mean((np.array(predictions) - np.array(actuals))**2))
+            mae = np.mean(np.abs(predictions - actuals))
+            rmse = np.sqrt(np.mean((predictions - actuals)**2))
             
-            # Sınıflandırma metriklerini hesapla
             classification_metrics = calculate_threshold_metrics(
-                y_true=actuals,
-                y_pred=predictions,
+                y_true=actuals.tolist(),
+                y_pred=predictions.tolist(),
                 threshold=self.config.get('threshold', 1.5)
             )
             
-            # Regresyon metriklerini ekle
             classification_metrics['mae'] = mae
             classification_metrics['rmse'] = rmse
             
@@ -247,20 +237,28 @@ class RollingTrainer:
                 continue
 
             try:
-                model = self._get_model_instance()
+                # Prepare data using the new feature-rich pipeline
+                X_train, y_train = self.data_manager.prepare_sequences(train_data, sequence_length)
+                X_test, y_test = self.data_manager.prepare_sequences(test_data, sequence_length)
+
+                if X_train.shape[0] == 0 or X_test.shape[0] == 0:
+                    print(f"  ⚠️  Cycle {cycle + 1} atlandı: Yeterli dizi oluşturulamadı.")
+                    continue
+                
+                # Get the number of features from the data
+                input_size = X_train.shape[2]
+                
+                # Instantiate the model with the correct input_size
+                model = self._get_model_instance(input_size=input_size)
+                
                 train_params = self.config.get('train_params', {})
                 train_params['tqdm_desc'] = f"Cycle {cycle + 1}"
                 
-                print(f"  - Model eğitimi başlıyor...")
-                
-                # Veriyi DataManager ile hazırla
-                X_train, y_train = self.data_manager.prepare_sequences(train_data, sequence_length)
-                
-                # Modeli eğit
+                print(f"  - Model eğitimi başlıyor (Özellik Sayısı: {input_size})...")
                 model.train(X=X_train, y=y_train, **train_params)
                 
                 print(f"  - Model testi başlıyor...")
-                performance = self._test_model(model, test_data)
+                performance = self._test_model(model, X_test, y_test)
                 if not performance:
                     print(f"  - ⚠️  Cycle {cycle + 1}: Test başarısız, döngü atlanıyor.")
                     continue

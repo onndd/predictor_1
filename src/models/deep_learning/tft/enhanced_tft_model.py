@@ -96,20 +96,24 @@ class EnhancedTFTPredictor(BasePredictor):
     """
     Enhanced TFT predictor with JetX-specific features, inheriting from BasePredictor.
     """
-    def _build_model(self, **kwargs) -> nn.Module:
-        """Build the JetX-enhanced TFT model."""
-        # These parameters are now passed directly from the config via kwargs
+    def __init__(self, sequence_length: int, input_size: int, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
+        # Store other params needed for _build_model
         self.hidden_size = kwargs.get('hidden_size', 256)
         self.num_heads = kwargs.get('num_heads', 8)
         self.num_layers = kwargs.get('num_layers', 2)
-        
+        self.threshold = kwargs.get('threshold', 1.5)
+        # Call super().__init__ which will store input_size and call _build_model
+        super().__init__(sequence_length=sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
+
+    def _build_model(self, input_size: int, **kwargs) -> nn.Module:
+        """Build the JetX-enhanced TFT model."""
         return JetXTFTModel(
-            input_size=1,
+            input_size=input_size, # Use the passed input_size
             hidden_size=self.hidden_size,
             num_heads=self.num_heads,
             num_layers=self.num_layers,
             forecast_horizon=1,
-            threshold=kwargs.get('threshold', 1.5)
+            threshold=self.threshold
         )
 
     def _create_loss_function(self, **kwargs) -> nn.Module:
@@ -143,7 +147,9 @@ class EnhancedTFTPredictor(BasePredictor):
         try:
             self.model.eval()
             with torch.no_grad():
-                x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
+                # This prediction logic needs a refactor for feature-rich inputs.
+                raise NotImplementedError("Prediction logic needs to be updated for feature-rich inputs.")
+                # x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
                 predictions = self.model(x, return_attention=True)
                 
                 value = predictions['value'].squeeze().item()
@@ -170,6 +176,7 @@ class EnhancedTFTPredictor(BasePredictor):
             'is_trained': self.is_trained,
             'model_config': {
                 'sequence_length': self.sequence_length,
+                'input_size': self.input_size,
                 'hidden_size': self.hidden_size,
                 'num_heads': self.num_heads,
                 'num_layers': self.num_layers

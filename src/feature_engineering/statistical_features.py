@@ -3,7 +3,7 @@
 import numpy as np
 from scipy import stats
 
-def calculate_basic_stats(values, window_sizes=[10, 20, 50, 100, 200]):
+def calculate_basic_stats(values: pd.Series, window_sizes=[10, 20, 50, 100, 200]):
     """
     Temel istatistiksel özellikleri (ortalama ve std olmadan) hesaplar
     """
@@ -37,7 +37,7 @@ def calculate_basic_stats(values, window_sizes=[10, 20, 50, 100, 200]):
             feature_idx += 5  # 7'den 5'e düşürüldü
     return features
 
-def calculate_threshold_runs(values, threshold=1.5, max_run_length=10):
+def calculate_threshold_runs(values: pd.Series, threshold=1.5, max_run_length=10):
     """
     Eşik değeri üzerinde/altında ardışık değer sayılarını hesaplar
     """
@@ -82,7 +82,7 @@ def calculate_threshold_runs(values, threshold=1.5, max_run_length=10):
         features[i, 3] = max_below_run
     return features
 
-def calculate_trend_features(values, window_sizes=[10, 20, 50, 100]):
+def calculate_trend_features(values: pd.Series, window_sizes=[10, 20, 50, 100]):
     """
     Trend ve mevsimsellik özellikleri hesaplar. RuntimeWarning'ları önlemek için kontroller eklendi.
     """
@@ -121,7 +121,7 @@ def calculate_trend_features(values, window_sizes=[10, 20, 50, 100]):
             feature_idx += 3
     return features
 
-def calculate_advanced_stats(values, window_sizes=[10, 20, 50, 100]):
+def calculate_advanced_stats(values: pd.Series, window_sizes=[10, 20, 50, 100]):
     """
     Volatilite, momentum ve kayan yüzdelikler gibi gelişmiş istatistiksel özellikleri hesaplar.
     """
@@ -152,13 +152,49 @@ def calculate_advanced_stats(values, window_sizes=[10, 20, 50, 100]):
             feature_idx += 4
     return features
 
+def calculate_lag_and_rolling_features(values, lags=[1, 2, 3, 5, 10], windows=[5, 10, 20, 50]):
+    """
+    Gecikme (lag) ve yuvarlanan (rolling) istatistik özelliklerini hesaplar.
+    """
+    df = pd.DataFrame(values, columns=['value'])
+    
+    # Lag features
+    for lag in lags:
+        df[f'lag_{lag}'] = df['value'].shift(lag)
+        
+    # Rolling features
+    for window in windows:
+        df[f'rolling_mean_{window}'] = df['value'].shift(1).rolling(window=window).mean()
+        df[f'rolling_std_{window}'] = df['value'].shift(1).rolling(window=window).std()
+
+    df.fillna(0, inplace=True)
+    
+    # Drop the original 'value' column
+    return df.drop('value', axis=1).values
+
 def extract_statistical_features(values):
     """
-    Tüm istatistiksel özellikleri (temel, trend ve gelişmiş) çıkarır.
+    Tüm istatistiksel özellikleri (temel, trend, gelişmiş, gecikme ve yuvarlanan) çıkarır.
     """
-    print("İstatistiksel özellikler çıkarılıyor (temel, eşik, trend ve gelişmiş)...")
-    basic_stats = calculate_basic_stats(values)
-    threshold_runs = calculate_threshold_runs(values)
-    trend_features = calculate_trend_features(values)
-    advanced_stats = calculate_advanced_stats(values)
-    return np.hstack([basic_stats, threshold_runs, trend_features, advanced_stats])
+    print("İstatistiksel özellikler çıkarılıyor (temel, eşik, trend, gelişmiş, gecikme ve yuvarlanan)...")
+    
+    # Convert to pandas Series for easier manipulation
+    series_values = pd.Series(values)
+    
+    # Calculate all feature sets
+    basic_stats = calculate_basic_stats(series_values)
+    threshold_runs = calculate_threshold_runs(series_values)
+    trend_features = calculate_trend_features(series_values)
+    advanced_stats = calculate_advanced_stats(series_values)
+    lag_rolling_features = calculate_lag_and_rolling_features(values) # This function uses pandas
+    
+    # Ensure all numpy arrays have the same number of rows
+    min_len = min(len(basic_stats), len(threshold_runs), len(trend_features), len(advanced_stats), len(lag_rolling_features))
+
+    return np.hstack([
+        basic_stats[:min_len],
+        threshold_runs[:min_len],
+        trend_features[:min_len],
+        advanced_stats[:min_len],
+        lag_rolling_features[:min_len]
+    ])

@@ -13,7 +13,8 @@ import numpy as np
 import torch
 from typing import List, Tuple, Optional, Dict, Any
 
-from src.config.settings import PATHS
+from src.config.settings import PATHS, CONFIG
+from src.feature_engineering.unified_extractor import UnifiedFeatureExtractor
 
 class DataManager:
     """
@@ -23,6 +24,9 @@ class DataManager:
         self.db_path = db_path
         self.use_cache = use_cache
         self.cache_path = self._get_cache_path()
+        self.feature_extractor = UnifiedFeatureExtractor(
+            sequence_length=CONFIG.get('training', {}).get('sequence_length', 200)
+        )
         print(f"DataManager initialized with DB: {self.db_path}")
 
     def _get_cache_path(self) -> str:
@@ -88,19 +92,33 @@ class DataManager:
 
     def prepare_sequences(self, data: List[float], sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Prepares sequences for training.
+        Prepares sequences with rich features for training.
         """
         if len(data) <= sequence_length:
             return torch.empty(0, sequence_length, 1), torch.empty(0)
 
+        # Fit the feature extractor on the provided data chunk
+        self.feature_extractor.fit(data)
+        
+        # Generate features for the entire chunk
+        all_features = self.feature_extractor.transform(data)
+        
+        # Create sequences from the generated features
         sequences, targets = [], []
-        for i in range(len(data) - sequence_length):
-            seq = data[i:i + sequence_length]
+        for i in range(len(all_features) - sequence_length):
+            # Sequence of features
+            seq = all_features[i:i + sequence_length]
+            # The target is the raw value from the original data
             target = data[i + sequence_length]
             sequences.append(seq)
             targets.append(target)
-        
-        sequences_tensor = torch.tensor(sequences, dtype=torch.float32).unsqueeze(-1)
+            
+        if not sequences:
+            # Determine the number of features to return an empty tensor with the correct shape
+            num_features = all_features.shape[1] if all_features.shape[0] > 0 else 0
+            return torch.empty(0, sequence_length, num_features), torch.empty(0)
+
+        sequences_tensor = torch.tensor(sequences, dtype=torch.float32)
         targets_tensor = torch.tensor(targets, dtype=torch.float32)
         
         return sequences_tensor, targets_tensor

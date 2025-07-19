@@ -15,11 +15,12 @@ class BasePredictor(ABC):
     """
     Abstract Base Class for all model predictors.
     """
-    def __init__(self, sequence_length: int, learning_rate: float, device: str = 'cpu', **kwargs):
+    def __init__(self, sequence_length: int, input_size: int, learning_rate: float, device: str = 'cpu', **kwargs):
         self.sequence_length = sequence_length
+        self.input_size = input_size
         self.learning_rate = learning_rate
         self.device = device
-        self.model = self._build_model(**kwargs).to(self.device)
+        self.model = self._build_model(input_size=input_size, **kwargs).to(self.device)
         self.optimizer = self._create_optimizer()
         self.scheduler = self._create_scheduler()
         self.criterion = self._create_loss_function(**kwargs)
@@ -153,6 +154,7 @@ class BasePredictor(ABC):
             'is_trained': self.is_trained,
             'model_config': {
                 'sequence_length': self.sequence_length,
+                'input_size': self.input_size,
                 'learning_rate': self.learning_rate
             }
         }, filepath)

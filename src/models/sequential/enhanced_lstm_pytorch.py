@@ -119,20 +119,18 @@ class EnhancedLSTMPredictor(BasePredictor):
     """
     Enhanced LSTM Predictor with PyTorch backend, inheriting from BasePredictor.
     """
-    def __init__(self, sequence_length: int = 200, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
-        # sequence_length must be set before calling super().__init__
-        self.sequence_length = sequence_length
+    def __init__(self, sequence_length: int, input_size: int, learning_rate: float = 0.001, device: str = 'cpu', **kwargs):
         # Store other params needed for _build_model
-        self.n_features = kwargs.get('n_features', 1)
         self.hidden_size = kwargs.get('hidden_size', 128)
         self.num_layers = kwargs.get('num_layers', 2)
         self.threshold = kwargs.get('threshold', 1.5)
-        super().__init__(sequence_length=sequence_length, learning_rate=learning_rate, device=device, **kwargs)
+        # Call super().__init__ which will store input_size and call _build_model
+        super().__init__(sequence_length=sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
 
-    def _build_model(self, **kwargs) -> nn.Module:
+    def _build_model(self, input_size: int, **kwargs) -> nn.Module:
         """Build the JetX-enhanced LSTM model."""
         return JetXLSTMModel(
-            input_size=self.n_features,
+            input_size=input_size, # Use the passed input_size
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
             threshold=self.threshold
@@ -164,27 +162,11 @@ class EnhancedLSTMPredictor(BasePredictor):
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
 
-        if len(sequence) != self.sequence_length:
-             raise ValueError(f"Sequence must have length {self.sequence_length}")
+        # This part needs a refactor on how prediction is done, as we need the feature extractor.
+        # For now, this will likely fail as it expects raw sequence.
+        # A proper fix involves passing the feature extractor or data manager.
+        raise NotImplementedError("Prediction logic needs to be updated for feature-rich inputs.")
 
-        try:
-            self.model.eval()
-            with torch.no_grad():
-                X = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(self.device)
-                predictions = self.model(X)
-                
-                value = predictions['value'].squeeze().item()
-                probability = predictions['probability'].squeeze().item()
-                confidence = predictions['confidence'].squeeze().item()
-                
-                if any(np.isnan([v]) for v in [value, probability, confidence]):
-                    raise ValueError("Model produced invalid predictions (NaN)")
-
-                return float(value), float(probability), float(confidence)
-                
-        except Exception as e:
-            raise RuntimeError(f"Enhanced LSTM prediction failed: {str(e)}")
-    
     def save_model(self, filepath):
         """Save the trained model"""
         torch.save({
@@ -193,10 +175,10 @@ class EnhancedLSTMPredictor(BasePredictor):
             'is_trained': self.is_trained,
             'model_config': {
                 'sequence_length': self.sequence_length,
+                'input_size': self.input_size,
                 'learning_rate': self.learning_rate,
                 'hidden_size': self.hidden_size,
                 'num_layers': self.num_layers,
-                'n_features': self.n_features,
                 'threshold': self.threshold
             }
         }, filepath)
@@ -210,5 +192,7 @@ class EnhancedLSTMPredictor(BasePredictor):
 
 # Backward compatibility
 class LSTMModel(EnhancedLSTMPredictor):
-    def __init__(self, seq_length=200, n_features=1, threshold=1.5):
-        super().__init__(seq_length, n_features, threshold)
+    def __init__(self, seq_length=200, n_features=1, threshold=1.5, **kwargs):
+        # This is for backward compatibility, we need to pass input_size
+        # We assume n_features is the input_size here.
+        super().__init__(sequence_length=seq_length, input_size=n_features, threshold=threshold, **kwargs)
