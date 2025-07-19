@@ -701,14 +701,18 @@ class NBeatsPredictor(BasePredictor):
             raise RuntimeError(f"Prediction with confidence failed: {str(e)}")
 
     def train(self, X: torch.Tensor, y: torch.Tensor, **kwargs):
-        # Override train to handle input shape difference
-        
-        # N-Beats expects (batch_size, sequence_length), so squeeze the last dimension
-        # This override is no longer needed as the base model expects multi-feature input
-        # if X.dim() == 3 and X.shape[2] == 1:
-        #     X = X.squeeze(-1)
+        """
+        Override the base train method to handle the specific input requirements of N-BEATS.
+        N-BEATS is a univariate model, so it only uses the primary time series, not the extra features.
+        """
+        # N-Beats expects a 2D tensor (batch_size, sequence_length).
+        # The input X from the pipeline is a 3D tensor (batch_size, sequence_length, num_features).
+        # We select only the first feature, which is the raw value.
+        if X.dim() == 3:
+            print("  N-BEATS Trainer: Input is 3D, selecting first feature for univariate processing.")
+            X = X[:, :, 0]
 
-        # Call the base training loop with the correctly shaped data
+        # Call the base training loop with the correctly shaped 2D data
         return super().train(X, y, **kwargs)
     
     def predict_next_value(self, sequence: List[float]) -> float:
