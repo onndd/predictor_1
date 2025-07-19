@@ -429,8 +429,7 @@ class JetXThresholdLoss(nn.Module):
         self.threshold = threshold
         self.crash_weight = crash_weight
         self.alpha = alpha
-        self.mse = nn.MSELoss()
-        self.bce = nn.BCELoss()
+        # Loss functions are instantiated in forward pass to guarantee statelessness
     
     def forward(self, predictions: dict, targets: torch.Tensor) -> torch.Tensor:
         """
@@ -443,12 +442,16 @@ class JetXThresholdLoss(nn.Module):
         Returns:
             Combined loss
         """
+        # Instantiate loss functions inside forward to ensure they are stateless per call
+        mse_loss = nn.MSELoss()
+        bce_loss = nn.BCELoss()
+
         # Primary value loss
-        value_loss = self.mse(predictions['value'].squeeze(), targets)
+        value_loss = mse_loss(predictions['value'].squeeze(), targets)
         
         # Threshold classification loss
         threshold_targets = (targets >= self.threshold).float()
-        threshold_loss = self.bce(predictions['probability'].squeeze(), threshold_targets)
+        threshold_loss = bce_loss(predictions['probability'].squeeze(), threshold_targets)
         
         # Crash risk loss (emphasize crashes)
         crash_targets = (targets < self.threshold).float()
@@ -681,6 +684,22 @@ class NBeatsPredictor(BasePredictor):
         return JetXThresholdLoss(
             threshold=self.threshold,
             crash_weight=self.crash_weight
+        )
+
+    def _create_optimizer(self) -> torch.optim.Optimizer:
+        """
+        Override the base optimizer creation to include the parameters of the
+        feature_to_univariate projection layer. This is crucial because this layer
+        is part of the computation graph but not part of `self.model`.
+        Failing to include its parameters in the optimizer leads to stale gradients
+        and the 'trying to backward through the graph a second time' error.
+        """
+        all_params = list(self.model.parameters()) + list(self.feature_to_univariate.parameters())
+        print("✅ N-Beats optimizer including projection layer parameters.")
+        return torch.optim.Adam(
+            all_params,
+            lr=self.learning_rate,
+            weight_decay=1e-4
         )
 
     def _build_model(self, input_size: int, **kwargs) -> nn.Module:
