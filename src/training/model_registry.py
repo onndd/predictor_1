@@ -7,11 +7,26 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 # This will be fixed once settings.py is updated
+import numpy as np
+
 try:
     from src.config.settings import PATHS
 except ImportError:
     PATHS = {'models_dir': 'trained_models'}
 
+class NumpyJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder for numpy types.
+    Converts numpy integers, floats, and arrays to native Python types.
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyJSONEncoder, self).default(obj)
 
 class ModelRegistry:
     """
@@ -54,6 +69,20 @@ class ModelRegistry:
         
         return sorted(type_models, key=lambda x: x['performance'].get(metric, float('inf')), reverse=reverse)[0]
 
+    def get_best_overall_model(self, metric: str = 'f1') -> Optional[Dict]:
+        """Returns the best model across all types based on a metric."""
+        if not self.models:
+            return None
+        
+        # For metrics like 'mae' or 'rmse', lower is better.
+        # For metrics like 'f1', 'recall', 'accuracy', higher is better.
+        reverse = metric not in ['mae', 'rmse']
+        
+        # Handle cases where metric might be missing
+        default_value = float('-inf') if reverse else float('inf')
+        
+        return sorted(self.models, key=lambda x: x['performance'].get(metric, default_value), reverse=reverse)[0]
+
     def export_to_json(self, filename: str = None) -> str:
         """Exports the current registry to a JSON file."""
         if filename is None:
@@ -64,7 +93,7 @@ class ModelRegistry:
         try:
             os.makedirs(PATHS['models_dir'], exist_ok=True)
             with open(filepath, 'w') as f:
-                json.dump(self.models, f, indent=4)
+                json.dump(self.models, f, indent=4, cls=NumpyJSONEncoder)
             return filepath
         except Exception as e:
             print(f"❌ Failed to export model registry: {e}")

@@ -13,6 +13,8 @@ from datetime import datetime
 import mlflow
 import optuna
 import copy
+import numpy as np
+import shutil
 from typing import Dict, List, Any, Optional
 
 # Ensure src path is available for imports
@@ -188,3 +190,39 @@ class PipelineManager:
 
         registry_path = self.model_registry.export_to_json()
         print(f"📦 Model registry exported to: {registry_path}")
+
+        # Copy the best model to a final_model directory
+        self._copy_best_model_to_final_dir()
+
+    def _copy_best_model_to_final_dir(self):
+        """Identifies and copies the best performing model to a dedicated directory."""
+        print("\n" + "-"*60)
+        print("🔍 Identifying best model to copy to final directory...")
+        
+        best_model_info = self.model_registry.get_best_overall_model(metric='f1')
+        
+        if not best_model_info:
+            print("⚠️ Could not determine the best model. Skipping copy.")
+            return
+
+        final_model_dir = os.path.join(os.getcwd(), 'final_model')
+        os.makedirs(final_model_dir, exist_ok=True)
+
+        try:
+            model_path = best_model_info['model_path']
+            metadata_path = best_model_info['metadata_path']
+
+            if os.path.exists(model_path):
+                shutil.copy(model_path, final_model_dir)
+                print(f"✅ Copied best model to: {os.path.join(final_model_dir, os.path.basename(model_path))}")
+            else:
+                print(f"❌ Source model file not found: {model_path}")
+
+            if os.path.exists(metadata_path):
+                shutil.copy(metadata_path, final_model_dir)
+                print(f"✅ Copied metadata to: {os.path.join(final_model_dir, os.path.basename(metadata_path))}")
+            else:
+                print(f"❌ Source metadata file not found: {metadata_path}")
+
+        except Exception as e:
+            print(f"❌ Failed to copy best model files: {e}")
