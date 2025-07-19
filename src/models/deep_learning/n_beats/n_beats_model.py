@@ -734,11 +734,17 @@ class NBeatsPredictor(BasePredictor):
         if X.dim() != 3:
             raise ValueError(f"NBeatsPredictor expects a 3D tensor, but got {X.dim()}D.")
 
+        # FIX: Move input tensor to the correct device before projection
+        X = X.to(self.device)
+
         # Project the feature vector at each time step to a single value.
         # Input shape: (batch_size, sequence_length, num_features)
         # Output shape: (batch_size, sequence_length, 1) -> squeeze -> (batch_size, sequence_length)
         X_projected = self.feature_to_univariate(X).squeeze(-1)
         
+        # y'yi de aynı cihaza taşıyalım, base_predictor'da yapılsa bile burada garantiye alalım.
+        y = y.to(self.device)
+
         print(f"  N-BEATS Trainer: Projected rich features from {X.shape} to synthetic series of shape {X_projected.shape}.")
 
         # Call the base training loop with the correctly shaped 2D data
