@@ -2,6 +2,7 @@
 
 import numpy as np
 from scipy import stats
+import pandas as pd
 
 def calculate_basic_stats(values: pd.Series, window_sizes=[10, 20, 50, 100, 200]):
     """
