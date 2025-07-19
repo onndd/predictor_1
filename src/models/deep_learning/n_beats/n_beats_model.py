@@ -652,15 +652,25 @@ class NBeatsPredictor(BasePredictor):
     """
     N-BEATS based predictor for JetX time series, inheriting from BasePredictor.
     """
+    def __init__(self, sequence_length: int, learning_rate: float, device: str = 'cpu', **kwargs):
+        # Store hyperparameters before calling super().__init__ because _build_model needs them
+        self.hidden_size = kwargs.get('hidden_size', 512)
+        self.num_stacks = kwargs.get('num_stacks', 4)
+        self.num_blocks = kwargs.get('num_blocks', 4)
+        self.threshold = kwargs.get('threshold', 1.5)
+        
+        # Now call super().__init__ which will call _build_model
+        super().__init__(sequence_length=sequence_length, learning_rate=learning_rate, device=device, **kwargs)
+
     def _build_model(self, **kwargs) -> nn.Module:
         """Build the JetX-optimized N-Beats model."""
         return JetXNBeatsModel(
             input_size=self.sequence_length,
             forecast_size=1,
-            num_stacks=kwargs.get('num_stacks', 4),
-            num_blocks=kwargs.get('num_blocks', 4),
-            hidden_size=kwargs.get('hidden_size', 512),
-            threshold=kwargs.get('threshold', 1.5)
+            num_stacks=self.num_stacks,
+            num_blocks=self.num_blocks,
+            hidden_size=self.hidden_size,
+            threshold=self.threshold
         )
 
     def _create_loss_function(self, **kwargs) -> nn.Module:

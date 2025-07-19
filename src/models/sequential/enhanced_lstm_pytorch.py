@@ -190,7 +190,15 @@ class EnhancedLSTMPredictor(BasePredictor):
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'is_trained': self.is_trained
+            'is_trained': self.is_trained,
+            'model_config': {
+                'sequence_length': self.sequence_length,
+                'learning_rate': self.learning_rate,
+                'hidden_size': self.hidden_size,
+                'num_layers': self.num_layers,
+                'n_features': self.n_features,
+                'threshold': self.threshold
+            }
         }, filepath)
     
     def load_model(self, filepath):
