@@ -452,19 +452,19 @@ class JetXThresholdLoss(nn.Module):
         
         # Crash risk loss (emphasize crashes)
         crash_targets = (targets < self.threshold).float()
-        crash_loss = self.bce(predictions['crash_risk'].squeeze(), crash_targets)
         
         # Weight crash predictions higher
         crash_weight = torch.where(crash_targets == 1, self.crash_weight, 1.0)
+        
+        # Calculate weighted BCE loss
         weighted_crash_loss = torch.mean(crash_weight * F.binary_cross_entropy(
             predictions['crash_risk'].squeeze(), crash_targets, reduction='none'))
         
-        # Combine losses
+        # Combine losses (simplified and corrected)
         total_loss = (
             self.alpha * value_loss +
             (1 - self.alpha) * 0.5 * threshold_loss +
-            (1 - self.alpha) * 0.3 * crash_loss +
-            (1 - self.alpha) * 0.2 * weighted_crash_loss
+            (1 - self.alpha) * 0.5 * weighted_crash_loss
         )
         
         return total_loss
