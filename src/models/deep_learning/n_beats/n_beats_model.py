@@ -663,9 +663,13 @@ class NBeatsPredictor(BasePredictor):
         super().__init__(sequence_length=sequence_length, input_size=input_size, learning_rate=learning_rate, device=device, **kwargs)
 
     def _build_model(self, input_size: int, **kwargs) -> nn.Module:
-        """Build the JetX-optimized N-Beats model."""
+        """
+        Build the JetX-optimized N-Beats model.
+        N-BEATS is univariate, so its internal input_size must be the sequence_length,
+        not the number of features from the pipeline.
+        """
         return JetXNBeatsModel(
-            input_size=input_size, # Use the passed input_size
+            input_size=self.sequence_length,  # FIX: Use sequence_length for the model's internal architecture
             forecast_size=1,
             num_stacks=self.num_stacks,
             num_blocks=self.num_blocks,
