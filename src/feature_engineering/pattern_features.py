@@ -3,7 +3,7 @@
 import numpy as np
 from collections import Counter
 import pandas as pd
-from data_processing.transformer import transform_to_categories, transform_to_category_ngrams
+from src.data_processing.transformer import transform_to_categories, transform_to_category_ngrams
 
 class NgramFeatureEncoder:
     def __init__(self, top_n_ngrams=20):

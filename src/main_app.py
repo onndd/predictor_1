@@ -107,7 +107,7 @@ class EnhancedJetXApp:
             st.error(f"Error adding value: {e}")
             return False
     
-    def make_prediction(self, sequence_length=200):
+    def make_prediction(self, sequence_length=CONFIG.get('training', {}).get('model_sequence_length', 300)):
         """Make prediction using ensemble of models"""
         if len(self.current_data) < sequence_length:
             st.warning(f"Need at least {sequence_length} data points for prediction")
@@ -125,7 +125,7 @@ class EnhancedJetXApp:
 
         return result
     
-    def make_optimized_prediction(self, sequence_length=200):
+    def make_optimized_prediction(self, sequence_length=CONFIG.get('training', {}).get('model_sequence_length', 300)):
         """Make prediction using optimized ensemble"""
         if len(self.current_data) < sequence_length:
             st.warning(f"Need at least {sequence_length} data points for prediction")
@@ -143,7 +143,7 @@ class EnhancedJetXApp:
 
         return result
 
-    def make_conservative_prediction(self, sequence_length=200, confidence_threshold=0.85):
+    def make_conservative_prediction(self, sequence_length=CONFIG.get('training', {}).get('model_sequence_length', 300), confidence_threshold=0.85):
         """
         CONSERVATIVE ADVICE SYSTEM - Make prediction with strict multi-criteria validation
         

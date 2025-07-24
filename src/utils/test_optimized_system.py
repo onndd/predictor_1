@@ -52,7 +52,7 @@ def test_unified_feature_extractor():
         
         # Initialize extractor
         extractor = UnifiedFeatureExtractor(
-            sequence_length=200,
+            sequence_length=CONFIG.get('training', {}).get('model_sequence_length', 300),
             window_sizes=[5, 10, 20, 50],
             threshold=1.5
         )

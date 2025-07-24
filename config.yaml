@@ -21,7 +21,7 @@ training:
   validation_split: 0.15
   min_data_points: 500
   threshold: 1.5
-  model_sequence_length: 150 # GPU optimized: 50 → 150 (3x increase)
+  model_sequence_length: 300 # GPU optimized: 50 → 150 (3x increase) -> User Request: 300
   feature_windows: [50, 100, 200, 500] # GPU optimized: expanded feature space
   lag_windows: [5, 10, 20, 50] # GPU optimized: restored full range
   lags: [1, 2, 3, 5, 10, 15] # GPU optimized: expanded lag features
@@ -56,7 +56,8 @@ models:
       num_stacks: 6 # GPU optimized: 4 → 6
       num_blocks: 6 # GPU optimized: 4 → 6
       learning_rate: 0.0005
-      crash_weight: 10.0  # CRITICAL FIX: 3.0 → 10.0 (Fix Precision=0 problem)
+      crash_weight: 15.0  # Increased from 10.0 to 15.0
+      false_positive_penalty: 25.0 # NEW: Heavily penalize wrong 'Play' advice
       train_params:
         epochs: 75
         batch_size: 64 # GPU optimized: 32 → 64

@@ -29,7 +29,7 @@ class DataManager:
             feature_windows=training_config.get('feature_windows', [50, 75, 100, 200, 500]),
             lag_windows=training_config.get('lag_windows', [5, 10, 20, 50]),
             lags=training_config.get('lags', [1, 2, 3, 5, 10]),
-            model_sequence_length=training_config.get('model_sequence_length', 100),
+            model_sequence_length=training_config.get('model_sequence_length', 300),
             threshold=training_config.get('threshold', 1.5)
         )
         print(f"DataManager initialized with DB: {self.db_path}")

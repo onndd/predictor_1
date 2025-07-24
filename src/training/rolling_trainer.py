@@ -431,7 +431,7 @@ class RollingTrainer:
                 train_params['tqdm_desc'] = f"Cycle {cycle + 1}"
                 
                 # Veriyi DataManager ile hazırla
-                X_train, y_train = self.data_manager.prepare_sequences(train_data, self.config.get('sequence_length', 200))
+                X_train, y_train = self.data_manager.prepare_sequences(train_data, sequence_length)
                 
                 # Modeli eğit
                 model.train(X=X_train, y=y_train, **train_params)

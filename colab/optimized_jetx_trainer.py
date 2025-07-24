@@ -58,9 +58,12 @@ class OptimizedJetXTrainer:
     """
     
     def __init__(self):
+        from src.config.settings import CONFIG
+        sequence_length = CONFIG.get('training', {}).get('model_sequence_length', 300)
+
         self.models_config = {
             'N-Beats': {
-                'sequence_length': 300,
+                'sequence_length': sequence_length,
                 'hidden_size': 512,
                 'num_stacks': 4,
                 'num_blocks': 4,
@@ -73,7 +76,7 @@ class OptimizedJetXTrainer:
                 'validation_split': 0.2
             },
             'TFT': {
-                'sequence_length': 300,
+                'sequence_length': sequence_length,
                 'hidden_size': 384,
                 'num_heads': 8,
                 'num_layers': 3,
@@ -86,7 +89,7 @@ class OptimizedJetXTrainer:
                 'validation_split': 0.2
             },
             'LSTM': {
-                'sequence_length': 250,
+                'sequence_length': sequence_length,
                 'hidden_size': 256,
                 'num_layers': 3,
                 'learning_rate': 0.001,

@@ -217,7 +217,7 @@ class OptimizedShapExplainer:
                 with torch.no_grad():
                     # Get model's expected input size
                     model_input_size = getattr(model, 'input_size', 361)  # Default to 361 from error
-                    sequence_length = getattr(model, 'model_sequence_length', 150)  # From config
+                    sequence_length = getattr(model, 'model_sequence_length', 300)  # From config
                     
                     batch_size = X_shap.shape[0]
                     feature_count = X_shap.shape[1]

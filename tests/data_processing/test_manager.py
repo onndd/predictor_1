@@ -73,7 +73,8 @@ def test_prepare_sequences(temp_db):
     manager = DataManager(db_path=temp_db)
     data = manager.get_all_data()
     
-    seq_len = 50
+    from src.config.settings import CONFIG
+    seq_len = CONFIG.get('training', {}).get('model_sequence_length', 300)
     X, y = manager.prepare_sequences(data, sequence_length=seq_len)
     
     assert isinstance(X, torch.Tensor)

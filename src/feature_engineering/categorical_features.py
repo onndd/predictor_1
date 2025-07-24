@@ -2,7 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from data_processing.transformer import (
+from src.data_processing.transformer import (
     get_value_category, get_step_category,
     transform_to_categories, transform_to_step_categories,
     fuzzy_membership, VALUE_CATEGORIES
