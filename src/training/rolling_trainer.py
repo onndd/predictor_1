@@ -322,22 +322,44 @@ class RollingTrainer:
             def predict_proba_wrapper(x_np):
                 if x_np.ndim == 1:
                     x_np = x_np.reshape(1, -1)
-                if x_np.shape[1] != model.input_size:
-                     x_np = x_np.reshape(x_np.shape[0], model.sequence_length, model.input_size)
+                
+                # Reshape to match expected 3D input: (batch_size, sequence_length, features)
+                if x_np.ndim == 2:
+                    # x_np shape: (batch_size, total_features)
+                    # Need to reshape to: (batch_size, sequence_length, features_per_step)
+                    batch_size = x_np.shape[0]
+                    total_features = x_np.shape[1]
+                    features_per_step = model.input_size
+                    sequence_length = total_features // features_per_step
+                    
+                    if total_features % features_per_step != 0:
+                        # Trim to fit exact reshape
+                        total_features = sequence_length * features_per_step
+                        x_np = x_np[:, :total_features]
+                    
+                    x_np = x_np.reshape(batch_size, sequence_length, features_per_step)
 
                 x_tensor = torch.tensor(x_np, dtype=torch.float32).to(self.device)
+                
                 with torch.no_grad():
-                    outputs = model.model(x_tensor)
+                    # Use the proper predict_for_testing method which handles feature projection
+                    outputs = model.predict_for_testing(x_tensor)
                     # Assuming the model output dictionary has a 'probability' key
                     probabilities = outputs['probability'].cpu().numpy()
+                
                 # SHAP KernelExplainer expects (N, 2) for binary classification
                 return np.hstack([1 - probabilities, probabilities])
 
             # Use a small sample of the training data as background
-            background_data = shap.sample(X_train.cpu().numpy().reshape(-1, X_train.shape[-1]), 100)
+            # Flatten the 3D tensor to 2D for SHAP: (batch_size, sequence_length * features)
+            background_data = shap.sample(X_train.cpu().numpy().reshape(X_train.shape[0], -1), 50)
             
-            # Get feature names
-            feature_names = self.data_manager.feature_extractor.get_feature_names()
+            # Get feature names - repeat for each time step
+            base_feature_names = self.data_manager.feature_extractor.get_feature_names()
+            feature_names = []
+            for t in range(X_train.shape[1]):  # sequence_length
+                for fname in base_feature_names:
+                    feature_names.append(f"{fname}_t{t}")
 
             explainer = shap.KernelExplainer(predict_proba_wrapper, background_data)
             
@@ -349,7 +371,10 @@ class RollingTrainer:
             os.makedirs(reports_dir, exist_ok=True)
             shap_plot_path = os.path.join(reports_dir, f"shap_summary_{model_name}.png")
             
-            shap.summary_plot(shap_values[1], features=background_data, feature_names=feature_names, show=False)
+            # Use only top features to avoid overcrowded plot
+            max_display = min(20, len(feature_names))
+            shap.summary_plot(shap_values[1], features=background_data, 
+                            feature_names=feature_names, max_display=max_display, show=False)
             plt.savefig(shap_plot_path, bbox_inches='tight')
             plt.close()
             

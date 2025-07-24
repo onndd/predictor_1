@@ -726,8 +726,24 @@ class NBeatsPredictor(BasePredictor):
         self.model.eval()
         self.feature_to_univariate.eval()
         with torch.no_grad():
-            X_projected = self.feature_to_univariate(X.to(self.device)).squeeze(-1)
+            # X shape: (batch_size, sequence_length, features)
+            # Project features to univariate: (batch_size, sequence_length, 1) -> (batch_size, sequence_length)
+            X_device = X.to(self.device)
+            X_projected = self.feature_to_univariate(X_device).squeeze(-1)
             return self.model(X_projected)
+
+    def predict(self, sequence: List[float]) -> float:
+        """
+        Simple prediction method for compatibility with ensemble systems
+        
+        Args:
+            sequence: Input sequence
+            
+        Returns:
+            Predicted value
+        """
+        value, _, _ = self.predict_with_confidence(sequence)
+        return value
 
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         if not self.is_trained:
@@ -738,7 +754,9 @@ class NBeatsPredictor(BasePredictor):
         
         try:
             self.model.eval()
+            self.feature_to_univariate.eval()
             with torch.no_grad():
+                # For predict_with_confidence, we work with raw univariate sequences
                 # N-Beats expects a 2D tensor: (batch_size, sequence_length)
                 x = torch.tensor(sequence, dtype=torch.float32).unsqueeze(0).to(self.device)
                 
@@ -889,9 +907,10 @@ class NBeatsPredictor(BasePredictor):
         return predictions
     
     def save_model(self, filepath: str):
-        """Save the trained model"""
+        """Save the trained model including the feature projection layer"""
         torch.save({
             'model_state_dict': self.model.state_dict(),
+            'feature_to_univariate_state_dict': self.feature_to_univariate.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'training_history': self.training_history,
             'is_trained': self.is_trained,
@@ -900,14 +919,24 @@ class NBeatsPredictor(BasePredictor):
                 'input_size': self.input_size,
                 'hidden_size': self.hidden_size,
                 'num_stacks': self.num_stacks,
-                'num_blocks': self.num_blocks
+                'num_blocks': self.num_blocks,
+                'model_sequence_length': self.model_sequence_length
             }
         }, filepath)
     
     def load_model(self, filepath: str):
-        """Load a trained model"""
-        checkpoint = torch.load(filepath)
+        """Load a trained model including the feature projection layer"""
+        checkpoint = torch.load(filepath, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
+        
+        # Load feature projection layer if available (backward compatibility)
+        if 'feature_to_univariate_state_dict' in checkpoint:
+            self.feature_to_univariate.load_state_dict(checkpoint['feature_to_univariate_state_dict'])
+        
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.training_history = checkpoint['training_history']
-        self.is_trained = checkpoint['is_trained']
+        self.training_history = checkpoint.get('training_history', {})
+        self.is_trained = checkpoint.get('is_trained', False)
+        
+        # Ensure models are on correct device
+        self.model.to(self.device)
+        self.feature_to_univariate.to(self.device)
