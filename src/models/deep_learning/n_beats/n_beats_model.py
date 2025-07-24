@@ -745,29 +745,104 @@ class NBeatsPredictor(BasePredictor):
         except Exception as e:
             raise RuntimeError(f"Prediction with confidence failed: {str(e)}")
 
-    def train(self, X: torch.Tensor, y: torch.Tensor, **kwargs):
+    def train(self, X: torch.Tensor, y: torch.Tensor, epochs: int = 100, batch_size: int = 32,
+              validation_split: float = 0.2, verbose: bool = True, tqdm_desc: str = "Training") -> dict:
         """
-        Override the base train method to project the rich multivariate features
-        into a synthetic univariate time series that N-BEATS can process.
+        Custom training loop for N-BEATS to handle the feature projection within the batch loop.
+        This avoids the 'trying to backward through the graph a second time' error by re-creating
+        the graph for each batch, which is the standard and expected way in PyTorch.
         """
         if X.dim() != 3:
             raise ValueError(f"NBeatsPredictor expects a 3D tensor, but got {X.dim()}D.")
 
-        # FIX: Move input tensor to the correct device before projection
-        X = X.to(self.device)
+        if len(X) == 0:
+            if verbose:
+                print("⚠️ Not enough data to train.")
+            return {}
 
-        # Project the feature vector at each time step to a single value.
-        # Input shape: (batch_size, sequence_length, num_features)
-        # Output shape: (batch_size, sequence_length, 1) -> squeeze -> (batch_size, sequence_length)
-        X_projected = self.feature_to_univariate(X).squeeze(-1)
-        
-        # y'yi de aynı cihaza taşıyalım, base_predictor'da yapılsa bile burada garantiye alalım.
+        # Move full dataset to device once to avoid repeated transfers
+        X = X.to(self.device)
         y = y.to(self.device)
 
-        print(f"  N-BEATS Trainer: Projected rich features from {X.shape} to synthetic series of shape {X_projected.shape}.")
+        split_idx = int(len(X) * (1 - validation_split))
+        X_train, X_val = X[:split_idx], X[split_idx:]
+        y_train, y_val = y[:split_idx], y[split_idx:]
 
-        # Call the base training loop with the correctly shaped 2D data
-        return super().train(X_projected, y, **kwargs)
+        if len(X_train) == 0 or len(X_val) == 0:
+            if verbose:
+                print("⚠️ Not enough data for training and validation split.")
+            return {}
+
+        self.scheduler.T_max = epochs
+        
+        best_val_loss = float('inf')
+        patience_counter = 0
+        patience = 15  # Early stopping patience
+        
+        train_losses, val_losses = [], []
+        
+        epoch_iterator = tqdm(range(epochs), desc=tqdm_desc, leave=False)
+        for epoch in epoch_iterator:
+            self.model.train()
+            self.feature_to_univariate.train()  # Ensure projection layer is in train mode
+            total_train_loss = 0
+            
+            # Shuffle training data each epoch
+            permutation = torch.randperm(X_train.size(0))
+            
+            for i in range(0, len(X_train), batch_size):
+                indices = permutation[i:i + batch_size]
+                batch_X, batch_y = X_train[indices], y_train[indices]
+                
+                self.optimizer.zero_grad()
+                
+                # Project features for the current batch *inside* the loop
+                batch_X_projected = self.feature_to_univariate(batch_X).squeeze(-1)
+                
+                predictions = self.model(batch_X_projected)
+                loss = self.criterion(predictions, batch_y)
+                
+                loss.backward()
+                
+                # Clip gradients for both model and projection layer
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(self.feature_to_univariate.parameters(), max_norm=1.0)
+                
+                self.optimizer.step()
+                
+                total_train_loss += loss.item()
+            
+            avg_train_loss = total_train_loss / (len(X_train) / batch_size)
+            
+            self.model.eval()
+            self.feature_to_univariate.eval()  # Ensure projection layer is in eval mode
+            with torch.no_grad():
+                # Project validation data for evaluation
+                X_val_projected = self.feature_to_univariate(X_val).squeeze(-1)
+                val_predictions = self.model(X_val_projected)
+                val_loss = self.criterion(val_predictions, y_val).item()
+            
+            self.scheduler.step()
+            
+            train_losses.append(avg_train_loss)
+            val_losses.append(val_loss)
+            
+            epoch_iterator.set_description(f"{tqdm_desc} | Epoch {epoch+1}/{epochs} | Val Loss: {val_loss:.4f}")
+            
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= patience:
+                if verbose:
+                    print(f"\nEarly stopping at epoch {epoch + 1}")
+                break
+        
+        self.is_trained = True
+        self.training_history = {'train_losses': train_losses, 'val_losses': val_losses}
+        return self.training_history
     
     def predict_next_value(self, sequence: List[float]) -> float:
         """
