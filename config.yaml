@@ -15,16 +15,25 @@ paths:
 # Genel Eğitim ve HPO Ayarları
 # -------------------------------------------------------------------
 training:
-  hpo_trials: 30 # Her model için denenecek HPO kombinasyon sayısı (Daha agresif)
-  default_epochs: 75
-  batch_size: 32
+  hpo_trials: 15 # Memory optimized: 30 → 15
+  default_epochs: 50 # Memory optimized: 75 → 50
+  batch_size: 16 # Memory optimized: 32 → 16
   validation_split: 0.15
   min_data_points: 500
   threshold: 1.5
-  model_sequence_length: 100 # Modelin girdi olarak alacağı nihai dizi uzunluğu
-  feature_windows: [50, 75, 100, 200, 500] # Özellik mühendisliği için pencere boyutları
-  lag_windows: [5, 10, 20, 50] # Yuvarlanan özellikler için pencere boyutları
-  lags: [1, 2, 3, 5, 10] # Gecikme özellikleri için gecikme değerleri
+  model_sequence_length: 50 # Memory optimized: 100 → 50
+  feature_windows: [50, 100] # Memory optimized: [50, 75, 100, 200, 500] → [50, 100]
+  lag_windows: [5, 20] # Memory optimized: [5, 10, 20, 50] → [5, 20]
+  lags: [1, 3, 10] # Memory optimized: [1, 2, 3, 5, 10] → [1, 3, 10]
+
+# Memory management and SHAP optimization settings
+memory_optimization:
+  enable_shap: true
+  shap_frequency: 5 # Generate SHAP every 5 cycles instead of every cycle
+  shap_background_samples: 3 # Reduced from 50 to 3
+  shap_max_features: 10 # Show only top 10 features
+  memory_limit_mb: 8000 # 8GB memory limit
+  cleanup_frequency: 3 # Cleanup memory every 3 cycles
 
 # ===================================================================
 # Model Yapılandırmaları (Merkezileştirilmiş)

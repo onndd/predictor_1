@@ -20,7 +20,9 @@ from src.config.settings import PATHS
 from src.evaluation.metrics import calculate_threshold_metrics
 from src.data_processing.manager import DataManager
 from src.explainability.shap_explainer import ShapExplainer
+from src.explainability.optimized_shap_explainer import OptimizedShapExplainer
 from src.feature_engineering.unified_extractor import UnifiedFeatureExtractor
+from src.config.settings import CONFIG
 
 # A factory to get model classes dynamically
 def get_model_predictor(model_type: str) -> Any:
@@ -75,6 +77,10 @@ class RollingTrainer:
         self.models_dir = PATHS['models_dir']
         self.checkpoint_dir = os.path.join(self.models_dir, 'checkpoints')
         self.data_manager = DataManager(use_cache=False) # Rolling trainer için cache kullanmıyoruz
+        
+        # Initialize optimized SHAP explainer
+        self.optimized_shap = OptimizedShapExplainer(CONFIG)
+        
         os.makedirs(self.models_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
@@ -280,8 +286,8 @@ class RollingTrainer:
                     print(f"  - ⚠️  Cycle {cycle + 1}: Model kaydetme başarısız, döngü atlanıyor.")
                     continue
 
-                # --- SHAP Explanation Generation ---
-                shap_plot_path = self._generate_shap_explanation(model, X_train, model_name)
+                # --- Optimized SHAP Explanation Generation ---
+                shap_plot_path = self._generate_optimized_shap_explanation(model, X_train, model_name, cycle)
                 
                 if metadata_path:
                     with open(metadata_path, 'r+') as f:
@@ -303,6 +309,10 @@ class RollingTrainer:
 
                 # Save checkpoint after a successful cycle
                 self._save_checkpoint(model, model.optimizer, cycle)
+                
+                # Memory cleanup every few cycles
+                if (cycle + 1) % CONFIG.get('memory_optimization', {}).get('cleanup_frequency', 3) == 0:
+                    self._perform_memory_cleanup()
 
             except Exception as e:
                 config_str = json.dumps(self.config, indent=4, cls=NumpyJSONEncoder)
@@ -313,77 +323,57 @@ class RollingTrainer:
         self._cleanup_checkpoints()
         print(f"\n🎉 Rolling window training finished for {self.model_type}.")
         return cycle_results
+    
+    def _perform_memory_cleanup(self):
+        """Perform aggressive memory cleanup"""
+        import gc
+        import psutil
+        
+        # Get memory usage before cleanup
+        initial_memory = psutil.Process().memory_info().rss / 1024 / 1024
+        
+        # Garbage collection
+        gc.collect()
+        
+        # Clear PyTorch cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        
+        # Clear matplotlib cache
+        plt.close('all')
+        
+        # Get memory usage after cleanup
+        final_memory = psutil.Process().memory_info().rss / 1024 / 1024
+        memory_freed = initial_memory - final_memory
+        
+        print(f"  🧹 Memory cleanup: {initial_memory:.1f}MB → {final_memory:.1f}MB (freed {memory_freed:.1f}MB)")
 
-    def _generate_shap_explanation(self, model: Any, X_train: torch.Tensor, model_name: str) -> Optional[str]:
-        """Generates and saves a SHAP summary plot for a trained model."""
-        print("  - Generating SHAP explanations...")
+    def _generate_optimized_shap_explanation(self, model: Any, X_train: torch.Tensor, 
+                                           model_name: str, cycle: int) -> Optional[str]:
+        """Generate memory-efficient SHAP explanation using optimized explainer"""
         try:
-            # SHAP needs a function that takes a numpy array and returns a numpy array
-            def predict_proba_wrapper(x_np):
-                if x_np.ndim == 1:
-                    x_np = x_np.reshape(1, -1)
-                
-                # Reshape to match expected 3D input: (batch_size, sequence_length, features)
-                if x_np.ndim == 2:
-                    # x_np shape: (batch_size, total_features)
-                    # Need to reshape to: (batch_size, sequence_length, features_per_step)
-                    batch_size = x_np.shape[0]
-                    total_features = x_np.shape[1]
-                    features_per_step = model.input_size
-                    sequence_length = total_features // features_per_step
-                    
-                    if total_features % features_per_step != 0:
-                        # Trim to fit exact reshape
-                        total_features = sequence_length * features_per_step
-                        x_np = x_np[:, :total_features]
-                    
-                    x_np = x_np.reshape(batch_size, sequence_length, features_per_step)
-
-                x_tensor = torch.tensor(x_np, dtype=torch.float32).to(self.device)
-                
-                with torch.no_grad():
-                    # Use the proper predict_for_testing method which handles feature projection
-                    outputs = model.predict_for_testing(x_tensor)
-                    # Assuming the model output dictionary has a 'probability' key
-                    probabilities = outputs['probability'].cpu().numpy()
-                
-                # SHAP KernelExplainer expects (N, 2) for binary classification
-                return np.hstack([1 - probabilities, probabilities])
-
-            # Use a small sample of the training data as background
-            # Flatten the 3D tensor to 2D for SHAP: (batch_size, sequence_length * features)
-            background_data = shap.sample(X_train.cpu().numpy().reshape(X_train.shape[0], -1), 50)
+            # Get feature names from data manager
+            feature_names = self.data_manager.feature_extractor.get_feature_names()
             
-            # Get feature names - repeat for each time step
-            base_feature_names = self.data_manager.feature_extractor.get_feature_names()
-            feature_names = []
-            for t in range(X_train.shape[1]):  # sequence_length
-                for fname in base_feature_names:
-                    feature_names.append(f"{fname}_t{t}")
-
-            explainer = shap.KernelExplainer(predict_proba_wrapper, background_data)
+            # Use optimized SHAP explainer
+            shap_plot_path = self.optimized_shap.generate_explanation(
+                model=model,
+                X_train=X_train,
+                feature_names=feature_names,
+                model_name=model_name
+            )
             
-            # We need a sample of the data to explain, let's use the background data as well
-            shap_values = explainer.shap_values(background_data)
-
-            # Generate and save the plot
-            reports_dir = os.path.join(os.getcwd(), 'reports')
-            os.makedirs(reports_dir, exist_ok=True)
-            shap_plot_path = os.path.join(reports_dir, f"shap_summary_{model_name}.png")
+            # Memory cleanup after SHAP generation
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
-            # Use only top features to avoid overcrowded plot
-            max_display = min(20, len(feature_names))
-            shap.summary_plot(shap_values[1], features=background_data, 
-                            feature_names=feature_names, max_display=max_display, show=False)
-            plt.savefig(shap_plot_path, bbox_inches='tight')
-            plt.close()
-            
-            print(f"  - ✅ SHAP summary plot saved to: {shap_plot_path}")
             return shap_plot_path
-
+            
         except Exception as e:
-            print(f"  - ❌ Failed to generate SHAP plot: {e}")
-            traceback.print_exc()
+            print(f"  - ❌ Optimized SHAP generation failed: {e}")
             return None
 
     def _execute_incremental_training(self) -> List[Dict[str, Any]]:
