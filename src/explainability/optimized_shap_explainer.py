@@ -26,8 +26,19 @@ class MemoryEfficientFeatureSelector:
             return list(range(len(feature_names))), feature_names
         
         try:
-            # Flatten tensor for feature importance calculation
-            X_flat = X_train.view(X_train.shape[0], -1).cpu().numpy()
+            # For 3D tensor: (batch, sequence, features)
+            if X_train.ndim == 3:
+                # Calculate feature importance across all timesteps
+                X_reshaped = X_train.permute(0, 2, 1)  # (batch, features, sequence)
+                X_flat = X_reshaped.contiguous().view(X_train.shape[0], -1).cpu().numpy()
+            else:
+                X_flat = X_train.view(X_train.shape[0], -1).cpu().numpy()
+            
+            # Ensure we have enough features
+            total_features = X_flat.shape[1]
+            if total_features == 0:
+                print(f"⚠️ No features found, using fallback")
+                return list(range(min(self.max_features, len(feature_names)))), feature_names[:self.max_features]
             
             # Calculate feature variances (high variance = more information)
             variances = np.var(X_flat, axis=0)
@@ -36,23 +47,39 @@ class MemoryEfficientFeatureSelector:
             variances = np.nan_to_num(variances, nan=0.0, posinf=0.0, neginf=0.0)
             
             # Select top features by variance
-            top_indices = np.argsort(variances)[-self.max_features:]
+            num_features_to_select = min(self.max_features, total_features, len(feature_names))
+            if num_features_to_select <= 0:
+                print(f"⚠️ Invalid feature count, using fallback")
+                return list(range(min(self.max_features, len(feature_names)))), feature_names[:self.max_features]
             
-            # Map back to original feature names
-            features_per_timestep = len(feature_names)
+            top_indices = np.argsort(variances)[-num_features_to_select:]
+            
+            # Map to feature names correctly
             selected_names = []
             final_indices = []
             
+            # For sequence models, map flat indices back to feature names
+            features_per_timestep = len(feature_names)
             for idx in top_indices:
-                if idx < len(feature_names):
-                    selected_names.append(feature_names[idx])
-                    final_indices.append(idx)
+                # Map flat index to feature index
+                feature_idx = idx % features_per_timestep
+                if feature_idx < len(feature_names):
+                    if feature_idx not in final_indices:  # Avoid duplicates
+                        selected_names.append(feature_names[feature_idx])
+                        final_indices.append(feature_idx)
             
-            return final_indices[:self.max_features], selected_names[:self.max_features]
+            # Ensure we have at least some features
+            if len(final_indices) == 0:
+                print(f"⚠️ No valid features selected, using fallback")
+                fallback_count = min(self.max_features, len(feature_names))
+                return list(range(fallback_count)), feature_names[:fallback_count]
+            
+            return final_indices, selected_names
             
         except Exception as e:
             print(f"⚠️ Feature selection failed: {e}, using first {self.max_features} features")
-            return list(range(self.max_features)), feature_names[:self.max_features]
+            fallback_count = min(self.max_features, len(feature_names))
+            return list(range(fallback_count)), feature_names[:fallback_count]
 
 class OptimizedShapExplainer:
     """Memory-efficient SHAP explainer with smart resource management"""
@@ -188,41 +215,45 @@ class OptimizedShapExplainer:
                 X_shap = np.nan_to_num(X_shap, nan=0.0, posinf=1.0, neginf=-1.0)
                 
                 with torch.no_grad():
-                    # Convert to tensor with minimal memory usage
-                    X_tensor = torch.tensor(X_shap, dtype=torch.float32, device=model.device)
+                    # Get model's expected input size
+                    model_input_size = getattr(model, 'input_size', 361)  # Default to 361 from error
+                    sequence_length = getattr(model, 'model_sequence_length', 150)  # From config
                     
-                    # For sequence models, create minimal sequence
-                    if hasattr(model, 'sequence_length') and model.sequence_length > 0:
-                        batch_size = X_tensor.shape[0]
+                    batch_size = X_shap.shape[0]
+                    feature_count = X_shap.shape[1]
+                    
+                    # Create proper 3D tensor for sequence model
+                    if hasattr(model, 'model_sequence_length'):
+                        # Calculate how to reshape the flat features
+                        total_expected = sequence_length * model_input_size
                         
-                        # Use shorter sequence length for memory efficiency
-                        seq_len = min(10, model.sequence_length)
-                        features_per_step = X_tensor.shape[1] // seq_len
-                        
-                        if features_per_step > 0 and X_tensor.shape[1] >= seq_len * features_per_step:
-                            # Reshape to sequence format
-                            total_features = seq_len * features_per_step
-                            X_reshaped = X_tensor[:, :total_features].reshape(batch_size, seq_len, features_per_step)
+                        if feature_count < model_input_size:
+                            # Pad with zeros if we have fewer features than expected
+                            padding = np.zeros((batch_size, model_input_size - feature_count))
+                            X_padded = np.concatenate([X_shap, padding], axis=1)
+                        elif feature_count > model_input_size:
+                            # Truncate if we have more features
+                            X_padded = X_shap[:, :model_input_size]
                         else:
-                            # Fallback: repeat features across timesteps
-                            features = X_tensor.shape[1]
-                            X_reshaped = X_tensor.unsqueeze(1).repeat(1, seq_len, 1)
-                            if X_reshaped.shape[2] > features_per_step:
-                                X_reshaped = X_reshaped[:, :, :features_per_step]
+                            X_padded = X_shap
+                        
+                        # Create sequence by repeating features across timesteps
+                        X_sequence = np.tile(X_padded[:, np.newaxis, :], (1, sequence_length, 1))
+                        X_tensor = torch.tensor(X_sequence, dtype=torch.float32, device=model.device)
                     else:
                         # Non-sequence model
-                        X_reshaped = X_tensor
+                        X_tensor = torch.tensor(X_shap, dtype=torch.float32, device=model.device)
                     
-                    # Get prediction - use simplified method if available
+                    # Get prediction
                     if hasattr(model, 'predict_for_testing'):
-                        outputs = model.predict_for_testing(X_reshaped)
+                        outputs = model.predict_for_testing(X_tensor)
                         if isinstance(outputs, dict) and 'probability' in outputs:
                             probs = outputs['probability'].cpu().numpy().flatten()
                         else:
                             probs = torch.sigmoid(outputs).cpu().numpy().flatten()
                     else:
-                        # Fallback
-                        probs = np.random.rand(len(X_shap)) * 0.5 + 0.25
+                        # Fallback prediction
+                        probs = np.random.rand(batch_size) * 0.5 + 0.25
                     
                     # Ensure valid probability range
                     probs = np.clip(probs, 0.01, 0.99)
