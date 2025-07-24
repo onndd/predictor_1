@@ -425,11 +425,12 @@ class JetXThresholdLoss(nn.Module):
     JetX-specific loss function that emphasizes threshold prediction accuracy
     CRITICAL FIX: Drastically increased crash_weight to fix Precision=0 problem
     """
-    def __init__(self, threshold: float = 1.5, crash_weight: float = 10.0, alpha: float = 0.5):
+    def __init__(self, threshold: float = 1.5, crash_weight: float = 10.0, alpha: float = 0.5, false_positive_penalty: float = 1.0):
         super(JetXThresholdLoss, self).__init__()
         self.threshold = threshold
-        self.crash_weight = crash_weight  # CRITICAL: 2.0 → 10.0 (5x increase)
-        self.alpha = alpha  # CRITICAL: 0.7 → 0.5 (more balanced)
+        self.crash_weight = crash_weight
+        self.alpha = alpha
+        self.false_positive_penalty = false_positive_penalty # NEW
         # Loss functions are instantiated in forward pass to guarantee statelessness
     
     def forward(self, predictions: dict, targets: torch.Tensor) -> torch.Tensor:
@@ -464,9 +465,17 @@ class JetXThresholdLoss(nn.Module):
         weighted_crash_loss = torch.mean(crash_weight * F.binary_cross_entropy(
             predictions['crash_risk'].squeeze(), crash_targets, reduction='none'))
         
+        # --- NEW: False Positive Penalty ---
+        # Condition: prediction >= threshold AND target < threshold
+        fp_condition = (predictions['value'].squeeze() >= self.threshold) & (targets < self.threshold)
+        fp_penalty = torch.where(fp_condition, self.false_positive_penalty, 1.0)
+        
+        # Apply penalty to the main value loss
+        penalized_value_loss = value_loss * fp_penalty
+        
         # Combine losses (simplified and corrected)
         total_loss = (
-            self.alpha * value_loss +
+            self.alpha * penalized_value_loss.mean() + # Apply penalty here
             (1 - self.alpha) * 0.5 * threshold_loss +
             (1 - self.alpha) * 0.5 * weighted_crash_loss
         )
@@ -664,6 +673,7 @@ class NBeatsPredictor(BasePredictor):
         self.num_blocks = kwargs.get('num_blocks', 4)
         self.threshold = kwargs.get('threshold', 1.5)
         self.crash_weight = kwargs.get('crash_weight', 2.0)
+        self.false_positive_penalty = kwargs.get('false_positive_penalty', 1.0) # NEW
         
         # The sequence length the N-BEATS model itself will see
         self.model_sequence_length = model_sequence_length
@@ -692,7 +702,8 @@ class NBeatsPredictor(BasePredictor):
         print("✅ Using JetXThresholdLoss for N-Beats.")
         return JetXThresholdLoss(
             threshold=self.threshold,
-            crash_weight=self.crash_weight
+            crash_weight=self.crash_weight,
+            false_positive_penalty=self.false_positive_penalty # NEW
         )
 
     def _create_optimizer(self) -> torch.optim.Optimizer:

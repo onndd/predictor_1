@@ -12,13 +12,14 @@ paths:
   cache_dir: "data/cache" # Yeni önbellek dizini
 
 # -------------------------------------------------------------------
-# Genel Eğitim ve HPO Ayarları (10 GB GPU Optimized)
+# Genel Eğitim ve HPO Ayarları (12 GB GPU Optimized)
 # -------------------------------------------------------------------
 training:
   hpo_trials: 25 # GPU optimized: 15 → 25 (more comprehensive search)
   default_epochs: 75 # GPU optimized: 50 → 75 (better convergence)
-  batch_size: 64 # GPU optimized: 16 → 64 (4x increase for 10GB GPU)
-  validation_split: 0.15
+  batch_size: 64 # GPU optimized: 16 → 64 (4x increase for 12GB GPU)
+  validation_split: 0.2 # FIXED: 0.15 → 0.2 (20% for better validation)
+  early_stopping_patience: 10 # FIXED: 15 → 10 (more responsive early stopping)
   min_data_points: 500
   threshold: 1.5
   model_sequence_length: 300 # GPU optimized: 50 → 150 (3x increase) -> User Request: 300
@@ -56,16 +57,16 @@ models:
       num_stacks: 6 # GPU optimized: 4 → 6
       num_blocks: 6 # GPU optimized: 4 → 6
       learning_rate: 0.0005
-      crash_weight: 15.0  # Increased from 10.0 to 15.0
-      false_positive_penalty: 25.0 # NEW: Heavily penalize wrong 'Play' advice
+      crash_weight: 10.0  # STANDARDIZED: All models use 10.0
+      false_positive_penalty: 15.0 # STANDARDIZED: All models use 15.0
       train_params:
         epochs: 75
         batch_size: 64 # GPU optimized: 32 → 64
-        validation_split: 0.15
+        validation_split: 0.2 # FIXED: 0.15 → 0.2
         verbose: true
     hpo_space:
       learning_rate: { type: 'float', low: 0.00001, high: 0.01, log: false }
-      hidden_size: { type: 'categorical', choices: [512, 1024, 2048, 4096] } # GPU optimized for 10GB
+      hidden_size: { type: 'categorical', choices: [512, 1024, 2048, 4096] } # GPU optimized for 12GB
       num_stacks: { type: 'int', low: 4, high: 10 } # GPU optimized: expanded range
       num_blocks: { type: 'int', low: 4, high: 10 } # GPU optimized: expanded range
 
@@ -75,15 +76,16 @@ models:
       num_heads: 16 # GPU optimized: 8 → 16
       num_layers: 4 # GPU optimized: 3 → 4
       learning_rate: 0.0005
-      crash_weight: 5.0
+      crash_weight: 10.0 # STANDARDIZED: 5.0 → 10.0
+      false_positive_penalty: 15.0 # NEW: Added for consistency
       train_params:
         epochs: 75 # GPU optimized: 60 → 75
         batch_size: 32 # GPU optimized: 16 → 32
-        validation_split: 0.15
+        validation_split: 0.2 # FIXED: 0.15 → 0.2
         verbose: true
     hpo_space:
       learning_rate: { type: 'float', low: 0.00001, high: 0.01, log: false }
-      hidden_size: { type: 'categorical', choices: [256, 512, 1024, 2048] } # GPU optimized for 10GB
+      hidden_size: { type: 'categorical', choices: [256, 512, 1024, 2048] } # GPU optimized for 12GB
       num_heads: { type: 'categorical', choices: [8, 16, 32, 64] } # GPU optimized: expanded
       num_layers: { type: 'int', low: 3, high: 8 } # GPU optimized: expanded range
 
@@ -92,15 +94,16 @@ models:
       hidden_size: 512 # GPU optimized: 256 → 512
       num_layers: 4 # GPU optimized: 3 → 4
       learning_rate: 0.0005
-      crash_weight: 5.0
+      crash_weight: 10.0 # STANDARDIZED: 5.0 → 10.0
+      false_positive_penalty: 15.0 # NEW: Added for consistency
       train_params:
         epochs: 100 # GPU optimized: 80 → 100
         batch_size: 64 # GPU optimized: 32 → 64
-        validation_split: 0.15
+        validation_split: 0.2 # FIXED: 0.15 → 0.2
         verbose: true
     hpo_space:
       learning_rate: { type: 'float', low: 0.00001, high: 0.01, log: false }
-      hidden_size: { type: 'categorical', choices: [256, 512, 1024, 2048] } # GPU optimized for 10GB
+      hidden_size: { type: 'categorical', choices: [256, 512, 1024, 2048] } # GPU optimized for 12GB
       num_layers: { type: 'int', low: 3, high: 8 } # GPU optimized: expanded range
 
 # ===================================================================

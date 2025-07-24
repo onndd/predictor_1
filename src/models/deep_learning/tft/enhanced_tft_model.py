@@ -6,8 +6,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional, Dict
-from .tft_model import *
 from tqdm import tqdm
+
+# Import specific classes from tft_model
+from .tft_model import (
+    JetXTemporalFusionDecoder,
+    JetXTFTLoss,
+    InterpretableMultiHeadAttention
+)
 
 class JetXTFTModel(nn.Module):
     """
@@ -120,7 +126,8 @@ class EnhancedTFTPredictor(BasePredictor):
         """Create the JetX-specific loss function for TFT."""
         return JetXTFTLoss(
             threshold=kwargs.get('threshold', 1.5),
-            crash_weight=kwargs.get('crash_weight', 5.0)
+            crash_weight=kwargs.get('crash_weight', 10.0),
+            false_positive_penalty=kwargs.get('false_positive_penalty', 15.0)
         )
 
     def predict_with_confidence(self, x_tensor: torch.Tensor) -> Tuple[float, float, float]:
@@ -192,19 +199,20 @@ class EnhancedTFTPredictor(BasePredictor):
 
 class JetXTFTLoss(nn.Module):
     """
-    JetX-specific loss function for TFT
+    JetX-specific loss function for TFT with false positive penalty
     """
-    def __init__(self, threshold: float = 1.5, crash_weight: float = 5.0, alpha: float = 0.6):
+    def __init__(self, threshold: float = 1.5, crash_weight: float = 10.0, alpha: float = 0.6, false_positive_penalty: float = 15.0):
         super(JetXTFTLoss, self).__init__()
         self.threshold = threshold
         self.crash_weight = crash_weight
         self.alpha = alpha
+        self.false_positive_penalty = false_positive_penalty
         self.mse = nn.MSELoss()
         self.bce = nn.BCELoss()
     
     def forward(self, predictions: Dict[str, torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
         """
-        Calculate JetX-specific loss
+        Calculate JetX-specific loss with false positive penalty
         
         Args:
             predictions: Dictionary with model predictions
@@ -215,6 +223,14 @@ class JetXTFTLoss(nn.Module):
         """
         # Primary value loss
         value_loss = self.mse(predictions['value'].squeeze(-1), targets)
+        
+        # --- NEW: False Positive Penalty ---
+        # Condition: prediction >= threshold AND target < threshold
+        fp_condition = (predictions['value'].squeeze(-1) >= self.threshold) & (targets < self.threshold)
+        fp_penalty = torch.where(fp_condition, self.false_positive_penalty, 1.0)
+        
+        # Apply penalty to the main value loss
+        penalized_value_loss = value_loss * fp_penalty.mean()
         
         # Threshold probability loss
         threshold_targets = (targets >= self.threshold).float()
@@ -237,9 +253,9 @@ class JetXTFTLoss(nn.Module):
             prediction_accuracy = 1.0 - torch.abs(predictions['value'].squeeze(-1) - targets) / targets.clamp(min=0.1)
         conf_loss = self.mse(predictions['confidence'].squeeze(-1), prediction_accuracy)
         
-        # Combined loss
+        # Combined loss (using penalized value loss)
         total_loss = (
-            self.alpha * value_loss +
+            self.alpha * penalized_value_loss +
             (1 - self.alpha) * 0.5 * prob_loss +
             (1 - self.alpha) * 0.3 * weighted_crash_loss +
             (1 - self.alpha) * 0.2 * conf_loss

@@ -137,26 +137,12 @@ class EnhancedLSTMPredictor(BasePredictor):
         )
 
     def _create_loss_function(self, **kwargs) -> nn.Module:
-        """Create the multi-output loss function for LSTM."""
-        threshold = kwargs.get('threshold', 1.5)
-        crash_weight = kwargs.get('crash_weight', 5.0)
-
-        def loss_fn(predictions, targets):
-            value_loss = F.mse_loss(predictions['value'].squeeze(), targets)
-            prob_targets = (targets >= threshold).float()
-            prob_loss = F.binary_cross_entropy(predictions['probability'].squeeze(), prob_targets)
-            crash_targets = (targets < threshold).float()
-            weights = torch.where(crash_targets == 1, crash_weight, 1.0)
-            weighted_crash_loss = F.binary_cross_entropy(
-                predictions['crash_risk'].squeeze(), crash_targets, weight=weights, reduction='mean'
-            )
-            with torch.no_grad():
-                accuracy = 1.0 - torch.abs(predictions['value'].squeeze() - targets) / targets.clamp(min=0.1)
-            conf_loss = F.mse_loss(predictions['confidence'].squeeze(), accuracy)
-            
-            return 0.5 * value_loss + 0.3 * prob_loss + 0.1 * weighted_crash_loss + 0.1 * conf_loss
-        
-        return loss_fn
+        """Create the JetX-specific loss function for LSTM."""
+        return JetXLSTMLoss(
+            threshold=kwargs.get('threshold', 1.5),
+            crash_weight=kwargs.get('crash_weight', 10.0),
+            false_positive_penalty=kwargs.get('false_positive_penalty', 15.0)
+        )
 
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         if not self.is_trained:
@@ -189,6 +175,72 @@ class EnhancedLSTMPredictor(BasePredictor):
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.is_trained = checkpoint['is_trained']
+
+class JetXLSTMLoss(nn.Module):
+    """
+    JetX-specific loss function for LSTM with false positive penalty
+    """
+    def __init__(self, threshold: float = 1.5, crash_weight: float = 10.0, alpha: float = 0.6, false_positive_penalty: float = 15.0):
+        super(JetXLSTMLoss, self).__init__()
+        self.threshold = threshold
+        self.crash_weight = crash_weight
+        self.alpha = alpha
+        self.false_positive_penalty = false_positive_penalty
+        self.mse = nn.MSELoss()
+        self.bce = nn.BCELoss()
+    
+    def forward(self, predictions: Dict[str, torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate JetX-specific loss with false positive penalty
+        
+        Args:
+            predictions: Dictionary with model predictions
+            targets: Target values
+            
+        Returns:
+            Combined loss
+        """
+        # Primary value loss
+        value_loss = self.mse(predictions['value'].squeeze(-1), targets)
+        
+        # --- NEW: False Positive Penalty ---
+        # Condition: prediction >= threshold AND target < threshold
+        fp_condition = (predictions['value'].squeeze(-1) >= self.threshold) & (targets < self.threshold)
+        fp_penalty = torch.where(fp_condition, self.false_positive_penalty, 1.0)
+        
+        # Apply penalty to the main value loss
+        penalized_value_loss = value_loss * fp_penalty.mean()
+        
+        # Threshold probability loss
+        threshold_targets = (targets >= self.threshold).float()
+        prob_loss = self.bce(predictions['probability'].squeeze(-1), threshold_targets)
+        
+        # Crash risk loss (weighted)
+        crash_targets = (targets < self.threshold).float()
+        
+        # Apply crash_weight to the BCE loss for crash predictions
+        crash_weights = torch.where(crash_targets == 1, self.crash_weight, 1.0)
+        weighted_crash_loss = F.binary_cross_entropy(
+            predictions['crash_risk'].squeeze(-1),
+            crash_targets,
+            weight=crash_weights,
+            reduction='mean'
+        )
+        
+        # Confidence loss (should be high when prediction is accurate)
+        with torch.no_grad():
+            prediction_accuracy = 1.0 - torch.abs(predictions['value'].squeeze(-1) - targets) / targets.clamp(min=0.1)
+        conf_loss = self.mse(predictions['confidence'].squeeze(-1), prediction_accuracy)
+        
+        # Combined loss (using penalized value loss)
+        total_loss = (
+            self.alpha * penalized_value_loss +
+            (1 - self.alpha) * 0.5 * prob_loss +
+            (1 - self.alpha) * 0.3 * weighted_crash_loss +
+            (1 - self.alpha) * 0.2 * conf_loss
+        )
+        
+        return total_loss
 
 # Backward compatibility
 class LSTMModel(EnhancedLSTMPredictor):
