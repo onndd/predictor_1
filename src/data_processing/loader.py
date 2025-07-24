@@ -145,12 +145,48 @@ def create_sample_jetx_data(count: int = 1000) -> List[float]:
     
     return sample_data
 
-def create_emergency_dataframe() -> DataFrameAlternative:
+def load_data_from_sqlite(db_path="jetx_data.db", limit=None):
+    """
+    SQLite veritabanından JetX verilerini yükler
+    
+    Args:
+        db_path: SQLite veritabanı dosya yolu
+        limit: Yüklenecek maksimum kayıt sayısı
+        
+    Returns:
+        List[float]: JetX değerleri
+    """
+    if not os.path.exists(db_path):
+        print(f"Database not found: {db_path}")
+        return []
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        if limit:
+            cursor.execute("SELECT value FROM jetx_results ORDER BY id DESC LIMIT ?", (limit,))
+        else:
+            cursor.execute("SELECT value FROM jetx_results ORDER BY id")
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if rows:
+            values = [row[0] for row in rows]
+            return values[::-1]  # Reverse to get chronological order
+        return []
+        
+    except Exception as e:
+        print(f"Error loading data from SQLite: {e}")
+        return []
+
+def create_emergency_dataframe():
     """
     Acil durum için basit veri oluşturur
     
     Returns:
-        DataFrameAlternative: Acil durum verisi
+        Simple data structure: Acil durum verisi
     """
     print("🚨 Creating emergency sample data...")
     
@@ -160,6 +196,5 @@ def create_emergency_dataframe() -> DataFrameAlternative:
         value = 1.0 + (i % 10) * 0.1 + (i % 3) * 0.05
         emergency_data.append([i + 1, value])
     
-    df = DataFrameAlternative(emergency_data, ['id', 'value'])
-    print(f"✅ Created emergency dataframe with {len(df)} records")
-    return df
+    print(f"✅ Created emergency data with {len(emergency_data)} records")
+    return emergency_data

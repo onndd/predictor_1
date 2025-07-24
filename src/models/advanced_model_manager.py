@@ -393,6 +393,168 @@ class AdvancedModelManager:
         else:
             return self.ensemble_predict(sequence)
 
+    def get_ensemble_advice(self, sequence: List[float], confidence_threshold: float = 0.85) -> Dict[str, Any]:
+        """
+        CONSERVATIVE ADVICE SYSTEM - Get ensemble advice with multi-criteria validation
+        
+        Args:
+            sequence: Input sequence for prediction
+            confidence_threshold: Minimum confidence required for "Play" advice
+            
+        Returns:
+            Dictionary with advice, confidence, and detailed analysis
+        """
+        # Get ensemble prediction first
+        ensemble_result = self.ensemble_predict(sequence)
+        
+        if not ensemble_result or ensemble_result['ensemble_prediction'] is None:
+            return {
+                'advice': 'Do Not Play',
+                'confidence': 0.0,
+                'reason': 'No valid predictions available',
+                'ensemble_prediction': None,
+                'criteria_analysis': {},
+                'model_count': 0
+            }
+        
+        prediction = ensemble_result['ensemble_prediction']
+        ensemble_confidence = ensemble_result['confidence']
+        model_count = ensemble_result['model_count']
+        
+        # CONSERVATIVE MULTI-CRITERIA VALIDATION
+        criteria_analysis = {}
+        
+        # Criterion 1: Basic threshold check (stricter than before)
+        basic_threshold_met = prediction >= 1.5 and ensemble_confidence >= confidence_threshold
+        criteria_analysis['basic_threshold'] = {
+            'met': basic_threshold_met,
+            'prediction_ok': prediction >= 1.5,
+            'confidence_ok': ensemble_confidence >= confidence_threshold,
+            'details': f"Prediction: {prediction:.3f}, Confidence: {ensemble_confidence:.3f}"
+        }
+        
+        # Criterion 2: Uncertainty check (ensemble variance as uncertainty proxy)
+        if ensemble_result.get('predictions'):
+            predictions_list = list(ensemble_result['predictions'].values())
+            uncertainty = float(np.var(predictions_list)) if len(predictions_list) > 1 else 0.1
+        else:
+            uncertainty = 0.5  # High uncertainty if no individual predictions
+        
+        uncertainty_acceptable = uncertainty <= 0.3
+        criteria_analysis['uncertainty'] = {
+            'met': uncertainty_acceptable,
+            'value': uncertainty,
+            'details': f"Model variance: {uncertainty:.3f} (limit: 0.3)"
+        }
+        
+        # Criterion 3: Conservative bias (apply penalty to confidence)
+        conservative_confidence = ensemble_confidence * 0.9  # 10% penalty for safety
+        conservative_threshold_met = conservative_confidence >= (confidence_threshold - 0.05)
+        criteria_analysis['conservative_bias'] = {
+            'met': conservative_threshold_met,
+            'adjusted_confidence': conservative_confidence,
+            'details': f"Conservative confidence: {conservative_confidence:.3f}"
+        }
+        
+        # Criterion 4: Volatility check based on sequence
+        volatility_safe = self._check_sequence_volatility(sequence)
+        criteria_analysis['volatility'] = {
+            'met': volatility_safe,
+            'details': "Sequence volatility analysis"
+        }
+        
+        # Criterion 5: Pattern reliability check
+        pattern_reliable = self._check_pattern_reliability(sequence, prediction)
+        criteria_analysis['pattern_reliability'] = {
+            'met': pattern_reliable,
+            'details': "Pattern consistency analysis"
+        }
+        
+        # Criterion 6: Model consensus check
+        model_consensus = model_count >= 2  # At least 2 models should agree
+        criteria_analysis['model_consensus'] = {
+            'met': model_consensus,
+            'model_count': model_count,
+            'details': f"{model_count} models participated"
+        }
+        
+        # FINAL DECISION: ALL criteria must be met for "Play"
+        all_criteria_met = (
+            basic_threshold_met and 
+            uncertainty_acceptable and 
+            conservative_threshold_met and
+            volatility_safe and
+            pattern_reliable and
+            model_consensus
+        )
+        
+        if all_criteria_met:
+            advice = "Play"
+            reason = "All conservative criteria met - high confidence prediction"
+            final_confidence = min(conservative_confidence, 0.95)  # Cap at 95%
+        else:
+            advice = "Do Not Play"
+            failed_criteria = [k for k, v in criteria_analysis.items() if not v['met']]
+            reason = f"Conservative criteria failed: {', '.join(failed_criteria)}"
+            final_confidence = max(0.8, 1.0 - uncertainty)  # High confidence in conservative advice
+        
+        return {
+            'advice': advice,
+            'confidence': final_confidence,
+            'reason': reason,
+            'ensemble_prediction': prediction,
+            'ensemble_confidence': ensemble_confidence,
+            'criteria_analysis': criteria_analysis,
+            'model_count': model_count,
+            'individual_predictions': ensemble_result.get('predictions', {}),
+            'conservative_mode': True
+        }
+    
+    def _check_sequence_volatility(self, sequence: List[float]) -> bool:
+        """
+        Check if sequence volatility is acceptable for Play advice.
+        High volatility = risky = Do Not Play
+        """
+        if len(sequence) < 5:
+            return False  # Not enough data = risky
+        
+        # Calculate volatility (standard deviation of recent values)
+        recent_values = sequence[-10:] if len(sequence) >= 10 else sequence
+        volatility = float(np.std(recent_values))
+        
+        # Volatility threshold (adjust based on risk tolerance)
+        max_acceptable_volatility = 0.5
+        
+        return volatility <= max_acceptable_volatility
+    
+    def _check_pattern_reliability(self, sequence: List[float], prediction: float) -> bool:
+        """
+        Check if the current pattern is reliable based on sequence characteristics.
+        """
+        if len(sequence) < 5:
+            return False  # Not enough data = unreliable
+        
+        # Check for trend consistency
+        recent_values = sequence[-5:]
+        
+        # Avoid predictions during rapid changes
+        rapid_changes = sum(1 for i in range(1, len(recent_values)) 
+                           if abs(recent_values[i] - recent_values[i-1]) > 1.0)
+        
+        if rapid_changes >= 2:  # Too many rapid changes = unreliable
+            return False
+        
+        # Check if prediction aligns with recent trend
+        if len(recent_values) >= 3:
+            recent_avg = float(np.mean(recent_values[-3:]))
+            prediction_deviation = abs(prediction - recent_avg)
+            
+            # Prediction shouldn't deviate too much from recent average
+            if prediction_deviation > 1.5:  # Large deviation = unreliable
+                return False
+        
+        return True
+
     def predict_with_attention(self, model_name: str, sequence: List[float]) -> Optional[Dict[str, Any]]:
         """
         Makes a prediction with a specific model and returns attention weights if available.

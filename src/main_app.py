@@ -143,6 +143,40 @@ class EnhancedJetXApp:
 
         return result
 
+    def make_conservative_prediction(self, sequence_length=200, confidence_threshold=0.85):
+        """
+        CONSERVATIVE ADVICE SYSTEM - Make prediction with strict multi-criteria validation
+        
+        Args:
+            sequence_length: Length of sequence to use for prediction
+            confidence_threshold: Minimum confidence required for "Play" advice
+            
+        Returns:
+            Dictionary with conservative advice and detailed analysis
+        """
+        if len(self.current_data) < sequence_length:
+            st.warning(f"Need at least {sequence_length} data points for conservative prediction")
+            return {
+                'advice': 'Do Not Play',
+                'confidence': 0.0,
+                'reason': 'Insufficient data for analysis',
+                'ensemble_prediction': None,
+                'criteria_analysis': {},
+                'model_count': 0
+            }
+        
+        # Get recent sequence
+        recent_sequence = self.current_data[-sequence_length:]
+        
+        # Make conservative ensemble advice
+        result = self.model_manager.get_ensemble_advice(recent_sequence, confidence_threshold)
+        
+        # Store features for LIME (if available)
+        if self.model_manager.feature_extractor and self.model_manager.feature_extractor.is_fitted:
+            self.last_prediction_features = self.model_manager.feature_extractor.transform(recent_sequence)[-1]
+
+        return result
+
     def _initialize_lime_explainer(self, data):
         """Initializes the LIME explainer if possible."""
         try:
@@ -427,9 +461,67 @@ def main():
             col_pred1, col_pred2 = st.columns(2)
             
             with col_pred1:
-                # Regular prediction
-                if st.button("🔮 Standard Prediction"):
-                    with st.spinner("Making prediction..."):
+                # Conservative Advice Prediction
+                if st.button("🛡️ Conservative Advice"):
+                    with st.spinner("Making conservative analysis..."):
+                        result = app.make_conservative_prediction()
+                    
+                    if result:
+                        advice = result['advice']
+                        confidence = result['confidence']
+                        reason = result['reason']
+                        prediction = result.get('ensemble_prediction', 0)
+                        
+                        # Determine display class based on advice
+                        if advice == "Play":
+                            advice_class = "high-confidence"
+                            advice_icon = "✅"
+                            advice_color = "green"
+                        else:
+                            advice_class = "low-confidence"
+                            advice_icon = "🛡️"
+                            advice_color = "red"
+                        
+                        # Display conservative advice result
+                        st.markdown(f"""
+                        <div class="result-box {advice_class}">
+                            <h2 style="text-align: center; color: {advice_color};">{advice_icon} {advice}</h2>
+                            <p><b>Confidence:</b> {confidence:.2%}</p>
+                            <p><b>Predicted Value:</b> {prediction:.3f}</p>
+                            <p><b>Reason:</b> {reason}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Show detailed criteria analysis
+                        if result.get('criteria_analysis'):
+                            with st.expander("🔍 Detailed Criteria Analysis", expanded=False):
+                                st.subheader("Conservative Validation Criteria")
+                                
+                                criteria = result['criteria_analysis']
+                                for criterion_name, criterion_data in criteria.items():
+                                    status_icon = "✅" if criterion_data['met'] else "❌"
+                                    criterion_display = criterion_name.replace('_', ' ').title()
+                                    
+                                    st.write(f"**{status_icon} {criterion_display}**")
+                                    st.write(f"   {criterion_data['details']}")
+                                    
+                                    # Show specific values for some criteria
+                                    if 'value' in criterion_data:
+                                        st.write(f"   Value: {criterion_data['value']:.3f}")
+                                    if 'adjusted_confidence' in criterion_data:
+                                        st.write(f"   Adjusted Confidence: {criterion_data['adjusted_confidence']:.3f}")
+                                    
+                                    st.write("")  # Add spacing
+                        
+                        # Show individual model predictions
+                        if result.get('individual_predictions'):
+                            with st.expander("📊 Individual Model Predictions", expanded=False):
+                                for model_name, pred in result['individual_predictions'].items():
+                                    st.write(f"• {model_name.upper()}: {pred:.3f}")
+
+                # Standard prediction (kept for comparison)
+                if st.button("📊 Standard Prediction (Legacy)"):
+                    with st.spinner("Making standard prediction..."):
                         result = app.make_prediction()
                     
                     if result and result['ensemble_prediction'] is not None:
@@ -457,15 +549,15 @@ def main():
                             <p><b>Predicted Value:</b> {prediction:.3f}</p>
                             <p><b>Confidence:</b> {confidence:.2%}</p>
                             <p><b>Models Used:</b> {model_count}</p>
-                            <p><b>Above 1.5 Probability:</b> {max(0, min(1, (prediction - 1.0) / 2.0)):.2%}</p>
+                            <p><b>⚠️ Legacy Mode:</b> No conservative filtering</p>
                         </div>
                         """, unsafe_allow_html=True)
                         
                         # Show individual model predictions
                         if result['predictions']:
-                            st.subheader("Individual Model Predictions")
-                            for model_name, pred in result['predictions'].items():
-                                st.write(f"{model_name.upper()}: {pred:.3f}")
+                            with st.expander("📊 Legacy Model Predictions", expanded=False):
+                                for model_name, pred in result['predictions'].items():
+                                    st.write(f"{model_name.upper()}: {pred:.3f}")
 
                         # --- Explainability Section ---
                         with st.expander("🔬 Explain Prediction"):
