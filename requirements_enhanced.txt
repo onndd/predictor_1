@@ -60,3 +60,10 @@ psutil>=5.8.0
 shap>=0.41.0
 
 lime>=0.2.0.1
+
+# Advanced Statistical Analysis
+nolds>=0.5.2
+antropy>=0.1.4
+ruptures>=1.1.7
+pyemd>=1.0.0
+hurst>=0.0.5

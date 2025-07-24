@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Any
 
 # Import individual feature extractors
 from .statistical_features import extract_statistical_features
+from .advanced_statistical_features import extract_advanced_statistical_features
 from .categorical_features import CategoricalFeatureEncoder
 from .pattern_features import NgramFeatureEncoder
 from .similarity_features import SimilarityFeatureEncoder
@@ -86,7 +87,7 @@ class UnifiedFeatureExtractor:
         if not self.is_fitted:
             raise RuntimeError("Feature extractor must be fitted before transform.")
         
-        # 1. Statistical Features
+        # 1. Basic Statistical Features
         statistical_f = extract_statistical_features(
             values,
             feature_windows=self.feature_windows,
@@ -94,21 +95,28 @@ class UnifiedFeatureExtractor:
             lags=self.lags
         )
         
-        # 2. Categorical Features
+        # 2. Advanced Statistical Features (Hurst, Fractal, RQA, Entropy, Regime)
+        advanced_stat_f = extract_advanced_statistical_features(
+            values,
+            window_sizes=self.feature_windows
+        )
+        
+        # 3. Categorical Features
         categorical_f = self.categorical_encoder.transform(values)
         
-        # 3. Pattern (N-gram) Features
+        # 4. Pattern (N-gram) Features
         ngram_f = self.ngram_encoder.transform(values)
         
-        # 4. Similarity Features
+        # 5. Similarity Features
         similarity_f = self.similarity_encoder.transform(values, self.model_sequence_length)
 
         # Ensure all feature sets have the same number of samples
-        min_len = min(len(statistical_f), len(categorical_f), len(ngram_f), len(similarity_f))
+        min_len = min(len(statistical_f), len(advanced_stat_f), len(categorical_f), len(ngram_f), len(similarity_f))
         
         # Combine all features
         combined_features = np.hstack([
             statistical_f[:min_len],
+            advanced_stat_f[:min_len],
             categorical_f[:min_len],
             ngram_f[:min_len],
             similarity_f[:min_len]
@@ -147,7 +155,47 @@ class UnifiedFeatureExtractor:
         names.extend([f"stat_roll_mean_{w}" for w in self.lag_windows])
         names.extend([f"stat_roll_std_{w}" for w in self.lag_windows])
 
-        # 2. Categorical Features
+        # 2. Advanced Statistical Features  
+        for window in self.feature_windows:
+            # Hurst exponent
+            names.append(f"hurst_exponent_w{window}")
+            
+            # Fractal dimensions
+            names.extend([
+                f"higuchi_fd_w{window}",
+                f"katz_fd_w{window}",
+                f"petrosian_fd_w{window}"
+            ])
+            
+            # Entropy measures
+            names.extend([
+                f"shannon_entropy_w{window}",
+                f"approximate_entropy_w{window}",
+                f"sample_entropy_w{window}",
+                f"permutation_entropy_w{window}",
+                f"spectral_entropy_w{window}"
+            ])
+            
+            # RQA features (only for larger windows)
+            if window >= 20:
+                names.extend([
+                    f"rqa_recurrence_rate_w{window}",
+                    f"rqa_determinism_w{window}",
+                    f"rqa_entropy_w{window}",
+                    f"rqa_laminarity_w{window}"
+                ])
+            
+            # Regime change indicators (only for larger windows)
+            if window >= 10:
+                names.extend([
+                    f"cusum_positive_w{window}",
+                    f"cusum_negative_w{window}",
+                    f"variance_ratio_w{window}",
+                    f"trend_change_strength_w{window}",
+                    f"recent_change_prob_w{window}"
+                ])
+
+        # 3. Categorical Features
         if self.categorical_encoder.one_hot_categories:
             names.extend([f"cat_onehot_{c}" for c in self.categorical_encoder.one_hot_categories])
         if self.categorical_encoder.one_hot_categories: # Fuzzy has same categories
