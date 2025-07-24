@@ -22,6 +22,7 @@ from src.data_processing.manager import DataManager
 from src.explainability.shap_explainer import ShapExplainer
 from src.explainability.optimized_shap_explainer import OptimizedShapExplainer
 from src.feature_engineering.unified_extractor import UnifiedFeatureExtractor
+from src.evaluation.reporting import explain_test_results
 from src.config.settings import CONFIG
 
 # A factory to get model classes dynamically
@@ -305,6 +306,12 @@ class RollingTrainer:
                     # Metrik isimlerini daha okunabilir hale getir
                     metric_name = key.replace('_', ' ').title()
                     print(f"    - {metric_name}: {value:.4f}")
+                
+                # Detaylı açıklama göster
+                print("\n" + "="*60)
+                print(explain_test_results(performance))
+                print("="*60)
+                
                 print(f"  ✅ Cycle {cycle + 1} tamamlandı. Model: {model_name}\n")
 
                 # Save checkpoint after a successful cycle

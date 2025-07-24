@@ -11,6 +11,131 @@ import seaborn as sns
 from datetime import datetime
 from typing import Dict, List, Any
 
+def explain_test_results(metrics: Dict[str, float]) -> str:
+    """
+    Test sonuçlarını Türkçe ve anlaşılır şekilde açıklar.
+    
+    Args:
+        metrics: Test metriklerini içeren dictionary
+        
+    Returns:
+        Açıklayıcı metin
+    """
+    explanation = []
+    
+    # Header
+    explanation.append("=" * 80)
+    explanation.append("🎯 TEST SONUÇLARI DETAYLI AÇIKLAMA")
+    explanation.append("=" * 80)
+    
+    # Ana metrikler
+    threshold_acc = metrics.get('threshold_accuracy', 0)
+    balanced_acc = metrics.get('balanced_accuracy', 0)
+    precision = metrics.get('precision', 0)
+    recall = metrics.get('recall', 0)
+    f1 = metrics.get('f1', 0)
+    
+    # Confusion matrix değerleri
+    tn = metrics.get('true_negative', 0)
+    fp = metrics.get('false_positive', 0)
+    fn = metrics.get('false_negative', 0)
+    tp = metrics.get('true_positive', 0)
+    
+    total_tests = tn + fp + fn + tp
+    
+    explanation.append(f"\n📊 GENEL PERFORMANS:")
+    explanation.append(f"   • Test edilen örnek sayısı: {int(total_tests)}")
+    explanation.append(f"   • Genel doğruluk: %{threshold_acc*100:.1f}")
+    explanation.append(f"   • F1-Score: %{f1*100:.1f} (Genel kalite göstergesi)")
+    
+    # Model davranış analizi
+    explanation.append(f"\n🤖 MODEL DAVRANIŞI ANALİZİ:")
+    
+    if recall > 0.95:
+        explanation.append(f"   ⚠️  MODEL ÇOK AGRESİF! Neredeyse her durumda 'OYNA' diyor (%{recall*100:.1f})")
+        explanation.append(f"   📈 Bu iyi: Kazanç fırsatlarının çoğunu yakalıyor")
+        explanation.append(f"   📉 Bu kötü: Çok fazla yanlış alarm üretiyor")
+    elif recall > 0.8:
+        explanation.append(f"   ✅ Model kazanç fırsatlarını iyi yakalıyor (%{recall*100:.1f})")
+    else:
+        explanation.append(f"   ⚠️  Model çok fazla fırsat kaçırıyor (%{recall*100:.1f})")
+    
+    if balanced_acc < 0.5:
+        explanation.append(f"   🚨 ÖNEMLI: Balanced Accuracy (%{balanced_acc*100:.1f}) rastgele tahminden kötü!")
+        explanation.append(f"   💡 Model bir sınıfa (muhtemelen 'OYNA') çok yanlı")
+    
+    # Detaylı sonuç analizi
+    explanation.append(f"\n📋 DETAYLI SONUÇ ANALİZİ:")
+    explanation.append(f"   ✅ Doğru 'OYNA' tavsiyeleri: {int(tp)} adet")
+    explanation.append(f"   ❌ Yanlış 'OYNA' tavsiyeleri: {int(fp)} adet (Para kaybı riski!)")
+    explanation.append(f"   ❌ Kaçırılan fırsatlar: {int(fn)} adet (Missed opportunities)")
+    explanation.append(f"   ✅ Doğru 'OYNAMA' tavsiyeleri: {int(tn)} adet")
+    
+    # Risk analizi
+    if fp > 0 and tp > 0:
+        risk_ratio = fp / (tp + fp)
+        explanation.append(f"\n⚖️  RİSK ANALİZİ:")
+        explanation.append(f"   • Model 'OYNA' dediğinde %{(1-risk_ratio)*100:.1f} ihtimalle doğru")
+        explanation.append(f"   • Model 'OYNA' dediğinde %{risk_ratio*100:.1f} ihtimalle yanlış (RİSK!)")
+        
+        if risk_ratio > 0.4:
+            explanation.append(f"   🚨 UYARI: Çok yüksek risk oranı! Canlı kullanım için tehlikeli")
+        elif risk_ratio > 0.2:
+            explanation.append(f"   ⚠️  Orta seviye risk. Dikkatli kullanım gerekli")
+        else:
+            explanation.append(f"   ✅ Kabul edilebilir risk seviyesi")
+    
+    # Trading perspektifi
+    explanation.append(f"\n💰 TRADİNG PERSPEKTİFİ:")
+    if tn == 0:
+        explanation.append(f"   🚨 KRİTİK: Model hiç 'OYNAMA' tavsiyesi vermiyor!")
+        explanation.append(f"   📊 Bu durumda model sadece agresif bir 'her zaman oyna' stratejisi")
+        explanation.append(f"   ⚠️  Gerçek bir tahmin sistemi değil, dikkatli olun!")
+    else:
+        explanation.append(f"   ✅ Model hem 'OYNA' hem 'OYNAMA' tavsiyeleri veriyor")
+    
+    # MAE ve RMSE açıklaması
+    mae = metrics.get('mae', 0)
+    rmse = metrics.get('rmse', 0)
+    
+    explanation.append(f"\n📐 TAHMIN HATASI ANALİZİ:")
+    explanation.append(f"   • Ortalama hata (MAE): {mae:.2f} birim")
+    explanation.append(f"   • Büyük hatalar (RMSE): {rmse:.2f} birim")
+    
+    if rmse > mae * 2:
+        explanation.append(f"   ⚠️  RMSE çok yüksek: Model bazen çok büyük hatalar yapıyor")
+    else:
+        explanation.append(f"   ✅ Hatalar genel olarak tutarlı")
+    
+    # Öneri bölümü
+    explanation.append(f"\n💡 ÖNERİLER:")
+    
+    if balanced_acc < 0.5:
+        explanation.append(f"   1. Model çok yanlı - class balancing gerekli")
+        explanation.append(f"   2. Threshold değerini ayarlayın (şu an 1.5)")
+        explanation.append(f"   3. Loss function'ı false positive'leri cezalandıracak şekilde düzenleyin")
+    
+    if recall > 0.95 and precision < 0.8:
+        explanation.append(f"   4. Model çok agresif - daha muhafazakar olmalı")
+        explanation.append(f"   5. Precision/Recall dengesini ayarlayın")
+    
+    if tn == 0:
+        explanation.append(f"   6. 🚨 EN ÖNEMLİSİ: Model 'OYNAMA' öğrenemiyor - ciddi problem!")
+        explanation.append(f"   7. Veri dengesizliği var - negatif örnekleri artırın")
+    
+    explanation.append(f"\n⭐ GENEL DEĞERLENDİRME:")
+    if f1 > 0.8 and balanced_acc > 0.6:
+        explanation.append(f"   ✅ Model genel olarak iyi performans gösteriyor")
+    elif f1 > 0.6 and balanced_acc > 0.5:
+        explanation.append(f"   🟡 Model orta seviye - iyileştirilebilir")
+    else:
+        explanation.append(f"   🔴 Model performansı yetersiz - ciddi revizyon gerekli")
+        explanation.append(f"   📝 Özellikle canlı trading için henüz kullanıma hazır değil")
+    
+    explanation.append("=" * 80)
+    
+    return "\n".join(explanation)
+
 def generate_text_report(results: Dict[str, List[Dict[str, Any]]]) -> str:
     """
     Generates a text-based summary report from training results.
