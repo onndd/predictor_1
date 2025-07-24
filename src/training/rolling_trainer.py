@@ -12,6 +12,8 @@ import traceback
 from datetime import datetime
 from tqdm import tqdm
 from typing import Dict, List, Any, Optional, Tuple
+import shap
+import matplotlib.pyplot as plt
 
 from src.training.model_registry import ModelRegistry
 from src.config.settings import PATHS
