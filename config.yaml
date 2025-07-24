@@ -26,7 +26,7 @@ training:
   lag_windows: [5, 10, 20, 50] # GPU optimized: restored full range
   lags: [1, 2, 3, 5, 10, 15] # GPU optimized: expanded lag features
 
-# Memory management and SHAP optimization settings (10 GB GPU)
+# Memory management and SHAP optimization settings (12 GB GPU)
 memory_optimization:
   enable_shap: true
   shap_frequency: 3 # Generate SHAP more frequently (every 3 cycles)
@@ -34,6 +34,17 @@ memory_optimization:
   shap_max_features: 20 # Show top 20 features instead of 10
   memory_limit_mb: 32000 # 32GB memory limit for 10GB GPU system
   cleanup_frequency: 5 # Cleanup memory every 5 cycles (less frequent)
+
+# GPU Optimization Settings (12GB Memory Constraint)
+gpu_optimization:
+  max_memory_gb: 12.0 # Hard limit for GPU memory usage
+  use_mixed_precision: true # FP16 training for 2x speed + 50% memory reduction
+  gradient_accumulation_steps: 2 # Effective batch size multiplier without memory increase
+  dynamic_batch_sizing: true # Automatically adjust batch size based on GPU memory
+  memory_monitoring: true # Real-time GPU memory monitoring
+  emergency_cleanup: true # Automatic cleanup when approaching memory limit
+  target_utilization: 85 # Target GPU utilization percentage
+  safety_margin_gb: 1.5 # Reserved memory for safety (avoid OOM)
 
 # ===================================================================
 # Model Yapılandırmaları (Merkezileştirilmiş)
@@ -45,7 +56,7 @@ models:
       num_stacks: 6 # GPU optimized: 4 → 6
       num_blocks: 6 # GPU optimized: 4 → 6
       learning_rate: 0.0005
-      crash_weight: 3.0
+      crash_weight: 10.0  # CRITICAL FIX: 3.0 → 10.0 (Fix Precision=0 problem)
       train_params:
         epochs: 75
         batch_size: 64 # GPU optimized: 32 → 64

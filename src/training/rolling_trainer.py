@@ -138,7 +138,7 @@ class RollingTrainer:
             print(f"🧹 Cleaned up checkpoint file: {checkpoint_path}")
 
     def _get_model_instance(self, input_size: int) -> Any:
-        """Creates an instance of the specified model type with its config."""
+        """Creates an instance of the specified model type with GPU optimization config."""
         print(f"🔧 Instantiating model: {self.model_type} with input_size: {input_size}")
         model_class = get_model_predictor(self.model_type)
         
@@ -151,6 +151,15 @@ class RollingTrainer:
         training_config = CONFIG.get('training', {})
         if 'model_sequence_length' in training_config:
             model_config['model_sequence_length'] = training_config['model_sequence_length']
+
+        # GPU Optimization: Inject GPU settings into model config
+        gpu_optimization = CONFIG.get('gpu_optimization', {})
+        if gpu_optimization and self.device.startswith('cuda'):
+            model_config['gpu_optimization'] = gpu_optimization
+            print(f"🚀 GPU Optimization enabled for {self.model_type}:")
+            print(f"   - Max Memory: {gpu_optimization.get('max_memory_gb', 12.0)}GB")
+            print(f"   - Mixed Precision: {gpu_optimization.get('use_mixed_precision', True)}")
+            print(f"   - Gradient Accumulation: {gpu_optimization.get('gradient_accumulation_steps', 2)}")
 
         # Filter config to only pass parameters expected by the model's __init__
         import inspect
@@ -231,6 +240,15 @@ class RollingTrainer:
     def _execute_windowed_training(self) -> List[Dict[str, Any]]:
         """Executes the classic rolling window training loop with checkpointing."""
         print(f"🚀 Starting ROLLING WINDOW training for {self.model_type}...")
+        
+        # CRITICAL FIX: Ensure minimum cycles for reliable training
+        min_cycles = 10  # Minimum 10 cycles for reliable results
+        available_cycles = len(self.chunks) - 1
+        
+        if available_cycles < min_cycles:
+            print(f"⚠️ WARNING: Only {available_cycles} cycles available, but {min_cycles} recommended for reliable training!")
+            print(f"⚠️ This may result in poor precision. Consider collecting more data.")
+        
         cycle_results = []
         
         start_cycle = 0

@@ -423,12 +423,13 @@ class NBeatsStack(nn.Module):
 class JetXThresholdLoss(nn.Module):
     """
     JetX-specific loss function that emphasizes threshold prediction accuracy
+    CRITICAL FIX: Drastically increased crash_weight to fix Precision=0 problem
     """
-    def __init__(self, threshold: float = 1.5, crash_weight: float = 2.0, alpha: float = 0.7):
+    def __init__(self, threshold: float = 1.5, crash_weight: float = 10.0, alpha: float = 0.5):
         super(JetXThresholdLoss, self).__init__()
         self.threshold = threshold
-        self.crash_weight = crash_weight
-        self.alpha = alpha
+        self.crash_weight = crash_weight  # CRITICAL: 2.0 → 10.0 (5x increase)
+        self.alpha = alpha  # CRITICAL: 0.7 → 0.5 (more balanced)
         # Loss functions are instantiated in forward pass to guarantee statelessness
     
     def forward(self, predictions: dict, targets: torch.Tensor) -> torch.Tensor:
@@ -653,7 +654,7 @@ from src.models.base_predictor import BasePredictor
 
 class NBeatsPredictor(BasePredictor):
     """
-    N-BEATS based predictor for JetX time series, inheriting from BasePredictor.
+    N-BEATS based predictor for JetX time series with GPU memory optimization.
     This version adds a feature projection layer to handle multivariate inputs.
     """
     def __init__(self, model_sequence_length: int, input_size: int, learning_rate: float, device: str = 'cpu', **kwargs):
@@ -670,6 +671,14 @@ class NBeatsPredictor(BasePredictor):
         # This layer projects the rich feature vector at each time step to a single value,
         # creating a synthetic univariate time series that N-BEATS can process.
         self.feature_to_univariate = nn.Linear(input_size, 1).to(device)
+
+        # GPU optimization parameters from config (injected by rolling trainer)
+        gpu_optimization = kwargs.get('gpu_optimization', {})
+        kwargs.update({
+            'max_memory_gb': gpu_optimization.get('max_memory_gb', 12.0),
+            'use_mixed_precision': gpu_optimization.get('use_mixed_precision', True),
+            'gradient_accumulation_steps': gpu_optimization.get('gradient_accumulation_steps', 2)
+        })
 
         # The `sequence_length` for BasePredictor is the length of the sequence fed to the model.
         # The `input_size` for BasePredictor is the number of raw features before projection.
