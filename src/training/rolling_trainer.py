@@ -163,12 +163,10 @@ class RollingTrainer:
                 print("⚠️ Not enough test data for a full evaluation.")
                 return None
 
-            model.model.eval()
-            with torch.no_grad():
-                # Get model predictions for the entire test set
-                outputs = model.model(X_test.to(self.device))
-                predictions = outputs['value'].squeeze().cpu().numpy()
-                actuals = y_test.cpu().numpy()
+            # Use the new `predict_for_testing` method which handles model-specific logic
+            outputs = model.predict_for_testing(X_test)
+            predictions = outputs['value'].squeeze().cpu().numpy()
+            actuals = y_test.cpu().numpy()
 
             if predictions.ndim == 0:
                 predictions = np.expand_dims(predictions, 0)

@@ -718,6 +718,17 @@ class NBeatsPredictor(BasePredictor):
             threshold=self.threshold
         )
 
+    def predict_for_testing(self, X: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Override the testing prediction method to include the feature projection step.
+        This ensures that test data is processed in the same way as training data.
+        """
+        self.model.eval()
+        self.feature_to_univariate.eval()
+        with torch.no_grad():
+            X_projected = self.feature_to_univariate(X.to(self.device)).squeeze(-1)
+            return self.model(X_projected)
+
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")

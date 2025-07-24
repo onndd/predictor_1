@@ -196,6 +196,16 @@ class BasePredictor(ABC):
         self.training_history = {'train_losses': train_losses, 'val_losses': val_losses}
         return self.training_history
 
+    def predict_for_testing(self, X: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        A method for getting raw model outputs for a batch of test data.
+        Can be overridden by subclasses that require special input processing.
+        By default, it passes the input directly to the model.
+        """
+        self.model.eval()
+        with torch.no_grad():
+            return self.model(X.to(self.device))
+
     @abstractmethod
     def predict_with_confidence(self, sequence: List[float]) -> Tuple[float, float, float]:
         """
