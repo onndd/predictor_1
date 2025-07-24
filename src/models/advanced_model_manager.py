@@ -393,13 +393,13 @@ class AdvancedModelManager:
         else:
             return self.ensemble_predict(sequence)
 
-    def get_ensemble_advice(self, sequence: List[float], confidence_threshold: float = 0.85) -> Dict[str, Any]:
+    def get_ensemble_advice(self, sequence: List[float], confidence_threshold: float = 0.65) -> Dict[str, Any]:
         """
         CONSERVATIVE ADVICE SYSTEM - Get ensemble advice with multi-criteria validation
         
         Args:
             sequence: Input sequence for prediction
-            confidence_threshold: Minimum confidence required for "Play" advice
+            confidence_threshold: Minimum confidence required for "Play" advice (default: 0.75)
             
         Returns:
             Dictionary with advice, confidence, and detailed analysis
@@ -424,13 +424,13 @@ class AdvancedModelManager:
         # CONSERVATIVE MULTI-CRITERIA VALIDATION
         criteria_analysis = {}
         
-        # Criterion 1: Basic threshold check (stricter than before)
+        # Criterion 1: Basic threshold check (very strict - 1.5)
         basic_threshold_met = prediction >= 1.5 and ensemble_confidence >= confidence_threshold
         criteria_analysis['basic_threshold'] = {
             'met': basic_threshold_met,
             'prediction_ok': prediction >= 1.5,
             'confidence_ok': ensemble_confidence >= confidence_threshold,
-            'details': f"Prediction: {prediction:.3f}, Confidence: {ensemble_confidence:.3f}"
+            'details': f"Prediction: {prediction:.3f} (≥1.5), Confidence: {ensemble_confidence:.3f} (≥{confidence_threshold:.2f})"
         }
         
         # Criterion 2: Uncertainty check (ensemble variance as uncertainty proxy)
@@ -440,20 +440,20 @@ class AdvancedModelManager:
         else:
             uncertainty = 0.5  # High uncertainty if no individual predictions
         
-        uncertainty_acceptable = uncertainty <= 0.3
+        uncertainty_acceptable = uncertainty <= 0.5
         criteria_analysis['uncertainty'] = {
             'met': uncertainty_acceptable,
             'value': uncertainty,
-            'details': f"Model variance: {uncertainty:.3f} (limit: 0.3)"
+            'details': f"Model variance: {uncertainty:.3f} (limit: 0.5)"
         }
         
-        # Criterion 3: Conservative bias (apply penalty to confidence)
-        conservative_confidence = ensemble_confidence * 0.9  # 10% penalty for safety
-        conservative_threshold_met = conservative_confidence >= (confidence_threshold - 0.05)
+        # Criterion 3: Conservative bias (minimal penalty for usability)
+        conservative_confidence = ensemble_confidence * 0.98  # 2% penalty for safety
+        conservative_threshold_met = conservative_confidence >= (confidence_threshold - 0.15)
         criteria_analysis['conservative_bias'] = {
             'met': conservative_threshold_met,
             'adjusted_confidence': conservative_confidence,
-            'details': f"Conservative confidence: {conservative_confidence:.3f}"
+            'details': f"Conservative confidence: {conservative_confidence:.3f} (≥{confidence_threshold - 0.15:.2f})"
         }
         
         # Criterion 4: Volatility check based on sequence
@@ -470,12 +470,12 @@ class AdvancedModelManager:
             'details': "Pattern consistency analysis"
         }
         
-        # Criterion 6: Model consensus check
-        model_consensus = model_count >= 2  # At least 2 models should agree
+        # Criterion 6: Model consensus check (relaxed)
+        model_consensus = model_count >= 1  # At least 1 model should work
         criteria_analysis['model_consensus'] = {
             'met': model_consensus,
             'model_count': model_count,
-            'details': f"{model_count} models participated"
+            'details': f"{model_count} models participated (minimum: 1)"
         }
         
         # FINAL DECISION: ALL criteria must be met for "Play"

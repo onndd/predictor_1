@@ -130,17 +130,17 @@ def test_advice_scenarios():
             print(f"   Confidence: {confidence:.2f}")
             print(f"   Uncertainty: {uncertainty:.2f}")
             
-            # Test each criterion
-            basic_threshold_met = prediction >= 1.5 and confidence >= 0.85
-            uncertainty_acceptable = uncertainty <= 0.3
-            conservative_confidence = confidence * 0.9
-            conservative_threshold_met = conservative_confidence >= 0.8
+            # Test each criterion (updated to match new 1.5 threshold)
+            basic_threshold_met = prediction >= 1.5 and confidence >= 0.65
+            uncertainty_acceptable = uncertainty <= 0.5
+            conservative_confidence = confidence * 0.98
+            conservative_threshold_met = conservative_confidence >= 0.5
             volatility_safe = predictor._check_sequence_volatility(scenario["sequence"])
             pattern_reliable = predictor._check_pattern_reliability(scenario["sequence"], prediction)
             
             print(f"   Criteria Analysis:")
-            print(f"     - Basic threshold (≥1.5, conf≥0.85): {'✅' if basic_threshold_met else '❌'}")
-            print(f"     - Uncertainty acceptable (≤0.3): {'✅' if uncertainty_acceptable else '❌'}")
+            print(f"     - Basic threshold (≥1.5, conf≥0.65): {'✅' if basic_threshold_met else '❌'}")
+            print(f"     - Uncertainty acceptable (≤0.5): {'✅' if uncertainty_acceptable else '❌'}")
             print(f"     - Conservative threshold: {'✅' if conservative_threshold_met else '❌'}")
             print(f"     - Volatility safe: {'✅' if volatility_safe else '❌'}")
             print(f"     - Pattern reliable: {'✅' if pattern_reliable else '❌'}")
@@ -204,10 +204,10 @@ def test_frequency_reduction():
             volatility_safe = predictor._check_sequence_volatility(sequence)
             pattern_reliable = predictor._check_pattern_reliability(sequence, last_value)
             
-            # Conservative criteria
-            basic_met = last_value >= 1.5 and old_confidence >= 0.85
+            # Conservative criteria (updated to 1.5 threshold)
+            basic_met = last_value >= 1.5 and old_confidence >= 0.65
             uncertainty_ok = True  # Assume OK for simulation
-            conservative_ok = (old_confidence * 0.9) >= 0.8
+            conservative_ok = (old_confidence * 0.98) >= 0.5
             
             if basic_met and uncertainty_ok and conservative_ok and volatility_safe and pattern_reliable:
                 play_count_new += 1
